@@ -37,22 +37,48 @@ Gerechnet wird mit dividendenbereinigten Schlusskursen, damit Ausschüttungstage
 
 ## Benachrichtigung
 
-Unter **Benachrichtigung aufs Handy** das Gerät wählen (die Liste zeigt alle `notify`-Dienste,
-Handys mit der Companion-App als „Handy: …“), Uhrzeit festlegen, speichern und eine Testnachricht senden.
+Unter **Benachrichtigung aufs Handy** das Gerät wählen, Uhrzeit festlegen, speichern und eine Testnachricht senden.
+Handys erscheinen dort, sobald die Home-Assistant-App auf ihnen eingerichtet und angemeldet ist. Fehlt ein Gerät,
+lässt sich der Dienstname (z. B. `mobile_app_pixel_8`, zu finden unter Entwicklerwerkzeuge → Aktionen → „notify.“)
+von Hand eintragen. Zeigt die Liste einen Fehler, hilft **Datenquellen testen**: Der Abschnitt `home_assistant`
+zeigt, ob das Add-on Home Assistant erreicht und welche Geräte es findet.
 
 Die Prüfung läuft einmal täglich ab der eingestellten Uhrzeit (Standard 18:00, werktags). Gemeldet wird,
 wenn ein Wert die gewählte Stufe neu erreicht oder an einem neuen Handelstag einen außergewöhnlichen
 Tagesverlust hat. Ein Tipp auf die Nachricht öffnet das Radar.
 
-## Sensor für Automationen und Dashboards
+## Dashboard
 
-Nach jeder Prüfung setzt das Add-on `sensor.nachkauf_radar_signale`:
+**Volle Ansicht als Karte:** Das Add-on bringt die Karte `custom:nachkauf-radar-card` mit und meldet sie beim Start als
+Dashboard-Ressource an. Im Dashboard **Bearbeiten → Karte hinzufügen → Manuell**:
 
-- Zustand: Anzahl der Werte mit „Nachkauf prüfen“
-- Attribute: `nachkauf_pruefen`, `beobachten` (Namenslisten), `letzte_pruefung`
+```yaml
+type: custom:nachkauf-radar-card
+height: 760
+```
 
-Der Sensor wird nach einem Neustart von Home Assistant erst bei der nächsten Prüfung wieder gesetzt
-(„Jetzt prüfen“ in der App setzt ihn sofort).
+Die Karte zeigt die gleiche Oberfläche wie die Seitenleiste. Dafür braucht das angemeldete Konto Admin-Rechte
+(wie für die Seitenleiste auch). Für andere Konten, etwa ein Wandtablet, zeigt sie automatisch eine kompakte
+Watchlist aus den Sensoren. Die kompakte Ansicht lässt sich auch fest wählen:
+
+```yaml
+type: custom:nachkauf-radar-card
+mode: compact
+range: veraenderung_1_jahr   # oder veraenderung_1_monat, veraenderung_5_jahre, veraenderung_10_jahre
+```
+
+Klappt die automatische Anmeldung nicht (z. B. bei Dashboards im YAML-Modus), unter **Einstellungen → Dashboards
+→ ⋮ → Ressourcen** `/local/nachkauf-radar/nachkauf-radar-card.js` als JavaScript-Modul eintragen.
+
+**Badges und Sensoren:** In der App unter **Im Dashboard anzeigen** steht fertiges YAML für Badges und Karten.
+
+| Sensor | Zustand | Attribute |
+|---|---|---|
+| `sensor.nachkauf_radar_signale` | Anzahl „Nachkauf prüfen“ | `nachkauf_pruefen`, `beobachten` (Namen), `anzahl_beobachten`, `letzte_pruefung`, `panel` |
+| `sensor.nachkauf_radar_<isin>` | Schlusskurs | `signal`, `stufe`, `punkte`, `veraenderung_1_tag`, `veraenderung_1_monat`, `veraenderung_1_jahr`, `veraenderung_5_jahre`, `veraenderung_10_jahre`, `vom_52w_hoch`, `rsi_14` |
+
+Die Sensoren werden alle 10 Minuten neu gesetzt; nach einem Neustart von Home Assistant sind sie also spätestens
+nach 10 Minuten wieder da.
 
 ## Daten
 

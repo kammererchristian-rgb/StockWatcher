@@ -180,6 +180,7 @@ footer{font-size:12.5px;color:var(--muted);max-width:80ch}
     <summary>Benachrichtigung aufs Handy</summary>
     <div class="sgrid">
       <label class="field">Gerät bzw. Dienst<select id="n_service"><option value="">Keine Benachrichtigung</option></select></label>
+      <label class="field">oder Dienstname von Hand<input id="n_manual" type="text" placeholder="z. B. mobile_app_pixel_8" autocomplete="off" spellcheck="false"></label>
       <label class="field">Täglich prüfen um<input id="n_time" type="time"></label>
       <label class="field">Melden bei<select id="n_level"><option value="buy">„Nachkauf prüfen“</option><option value="watch">„Beobachten“ und „Nachkauf prüfen“</option></select></label>
       <label class="check" style="align-self:end"><input id="n_wd" type="checkbox"> nur Montag bis Freitag</label>
@@ -191,6 +192,16 @@ footer{font-size:12.5px;color:var(--muted);max-width:80ch}
       <span class="msg" id="n_msg"></span>
     </div>
     <p class="note" id="n_last" style="margin:10px 0 0"></p>
+  </details>
+
+  <details class="box" id="dashBox">
+    <summary>Im Dashboard anzeigen</summary>
+    <div class="stack" style="margin-top:10px">
+      <p class="note" style="margin:0">Das Add-on stellt Sensoren bereit: <code>sensor.nachkauf_radar_signale</code> (Anzahl „Nachkauf prüfen“) und einen Sensor je Wertpapier mit Kurs, Signal und Wertentwicklung. Die Karte <code>custom:nachkauf-radar-card</code> bringt das Add-on mit. Im Dashboard: <b>Bearbeiten → Karte hinzufügen → Manuell</b> (bzw. <b>Badge hinzufügen</b>), dann den Text unten einfügen.</p>
+      <label class="field">Vorlage<select id="dashWhich"><option value="full">Karte: volle Ansicht wie in der Seitenleiste</option><option value="compact">Karte: kompakte Watchlist</option><option value="badge">Badge: erscheint nur bei Nachkauf-Signal</option><option value="badges">Badges: ein Badge je Wertpapier</option><option value="card">Markdown-Karte ohne Zusatzkarte</option></select></label>
+      <pre id="dashYaml" class="diag"></pre>
+      <div class="row"><button class="btn" id="dashCopy">Kopieren</button><span class="msg" id="dashMsg"></span></div>
+    </div>
   </details>
 
   <details class="box" id="dataBox">

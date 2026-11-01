@@ -1,4 +1,7 @@
 configuration:
+  dashboard_karte:
+    name: Dashboard-Karte bereitstellen
+    description: Legt die Karte „custom:nachkauf-radar-card“ in /config/www/nachkauf-radar ab und meldet sie als Dashboard-Ressource an.
   eodhd_api_key:
     name: EODHD-API-Schlüssel
     description: Schlüssel von eodhd.com. Leer lassen, um nur Yahoo Finance zu nutzen.

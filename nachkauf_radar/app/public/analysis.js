@@ -70,3 +70,15 @@ export function analyze(prices, cfgIn = {}) {
 }
 
 export const LEVEL_LABEL = { buy: "Nachkauf prüfen", watch: "Beobachten", calm: "Unauffällig", none: "Keine Kurse" };
+
+/** Veränderung seit dem Kurs vor `months` Monaten (oder seit Beginn der Historie, dann partial = true) */
+export function periodChange(a, months) {
+  if (!a || a.n < 2) return null;
+  const d = new Date(a.lastDate + "T12:00:00Z"), day = d.getUTCDate();
+  d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() - months);
+  d.setUTCDate(Math.min(day, new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate()));
+  const t = d.toISOString().slice(0, 10);
+  let idx = -1; for (let i = a.dates.length - 1; i >= 0; i--) if (a.dates[i] <= t) { idx = i; break; }
+  const start = idx < 0 ? 0 : idx;
+  return { chg: a.last / a.closes[start] - 1, since: a.dates[start], partial: idx < 0 };
+}

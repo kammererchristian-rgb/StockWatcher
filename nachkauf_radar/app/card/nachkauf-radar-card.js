@@ -1,0 +1,135 @@
+/* Nachkauf-Radar – Dashboard-Karte für Home Assistant
+ *
+ *   type: custom:nachkauf-radar-card
+ *   height: 760          # Höhe in Pixeln (Standard 760)
+ *   mode: full           # full = komplette Ansicht wie in der Seitenleiste, compact = nur Watchlist aus den Sensoren
+ *
+ * Die volle Ansicht bettet die Add-on-Oberfläche über Ingress ein, genau wie die Seitenleiste.
+ * Dafür braucht das angemeldete Konto Admin-Rechte; sonst zeigt die Karte automatisch die kompakte Watchlist.
+ */
+const NR_VERSION = "__VERSION__";
+const SUMMARY = "sensor.nachkauf_radar_signale";
+const PREFIX = "sensor.nachkauf_radar_";
+
+class NachkaufRadarCard extends HTMLElement {
+  static getStubConfig() { return { height: 760, mode: "full" }; }
+  static getConfigElement() { return undefined; }
+
+  setConfig(config) {
+    this._config = { height: 760, mode: "full", ...(config || {}) };
+    this._mode = null;
+    if (this._hass) this._start();
+  }
+
+  set hass(hass) {
+    const first = !this._hass;
+    this._hass = hass;
+    if (first) this._start();
+    else if (this._mode === "compact") this._renderCompact();
+  }
+
+  getCardSize() { return this._mode === "compact" ? 4 : Math.ceil((this._config?.height || 760) / 50); }
+  getGridOptions() { return { columns: 12, min_columns: 6, rows: this._mode === "compact" ? "auto" : Math.ceil((this._config?.height || 760) / 56) }; }
+
+  connectedCallback() { if (this._mode === "full" && !this._timer) this._timer = setInterval(() => this._keepAlive(), 60000); }
+  disconnectedCallback() { clearInterval(this._timer); this._timer = null; }
+
+  _shell(inner) {
+    this.innerHTML = `
+      <ha-card>
+        <style>
+          .nr-frame{display:block;width:100%;border:0;border-radius:var(--ha-card-border-radius,12px);background:var(--card-background-color)}
+          .nr-c{padding:12px 16px 14px}
+          .nr-h{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px}
+          .nr-h b{font-size:16px}
+          .nr-h a{color:var(--primary-color);font-size:13px;text-decoration:none}
+          .nr-l{display:grid}
+          .nr-r{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;padding:8px 0;border-top:1px solid var(--divider-color)}
+          .nr-r .nm{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+          .nr-r .nums{grid-column:1/-1;display:flex;gap:14px;font-size:13px;color:var(--secondary-text-color);font-variant-numeric:tabular-nums}
+          .nr-r .nums b{font-weight:500;color:var(--primary-text-color)}
+          .neg{color:var(--error-color,#c2341f)} .pos{color:var(--success-color,#3f7a5a)}
+          .pill{display:inline-block;font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;white-space:nowrap}
+          .buy{background:rgba(194,52,31,.14);color:var(--error-color,#c2341f)}
+          .watch{background:rgba(168,106,0,.14);color:var(--warning-color,#a86a00)}
+          .calm{background:rgba(63,122,90,.14);color:var(--success-color,#3f7a5a)}
+          .none{background:var(--secondary-background-color);color:var(--secondary-text-color)}
+          .nr-note{color:var(--secondary-text-color);font-size:12.5px;margin-top:8px}
+        </style>
+        ${inner}
+      </ha-card>`;
+  }
+
+  async _start() {
+    if (!this._config || !this._hass || this._starting) return;
+    this._starting = true;
+    try {
+      if (this._config.mode !== "compact" && this._hass.user?.is_admin !== false) {
+        try { await this._startFull(); return; }
+        catch (e) { this._fullError = e?.message || String(e); }
+      }
+      this._mode = "compact";
+      this._renderCompact();
+    } finally { this._starting = false; }
+  }
+
+  _slug() {
+    if (this._config.addon) return this._config.addon;
+    const p = this._hass.states[SUMMARY]?.attributes?.addon_slug;
+    if (p) return p;
+    throw new Error("Sensor " + SUMMARY + " fehlt – läuft das Add-on?");
+  }
+
+  async _session() {
+    const r = await this._hass.callWS({ type: "supervisor/api", endpoint: "/ingress/session", method: "post" });
+    this._sess = r.session;
+    document.cookie = `ingress_session=${r.session};path=/api/hassio_ingress/;SameSite=Strict${location.protocol === "https:" ? ";Secure" : ""}`;
+  }
+  async _keepAlive() {
+    if (!this._sess) return;
+    try { await this._hass.callWS({ type: "supervisor/api", endpoint: "/ingress/validate_session", method: "post", data: { session: this._sess } }); }
+    catch { try { await this._session(); } catch {} }
+  }
+
+  async _startFull() {
+    const info = await this._hass.callWS({ type: "supervisor/api", endpoint: `/addons/${this._slug()}/info`, method: "get" });
+    if (!info?.ingress_url) throw new Error("Add-on hat keine Ingress-Adresse");
+    await this._session();
+    this._mode = "full";
+    this._shell(`<iframe class="nr-frame" title="Nachkauf-Radar" style="height:${Number(this._config.height) || 760}px" src="${info.ingress_url}"></iframe>`);
+    if (!this._timer) this._timer = setInterval(() => this._keepAlive(), 60000);
+  }
+
+  _renderCompact() {
+    const h = this._hass, s = h.states[SUMMARY];
+    const panel = s?.attributes?.panel || "/local_nachkauf_radar";
+    const rows = Object.values(h.states).filter(e => e.entity_id.startsWith(PREFIX) && e.entity_id !== SUMMARY)
+      .map(e => ({ e, a: e.attributes }))
+      .sort((x, y) => ({ buy: 0, watch: 1, calm: 2, none: 3 }[x.a.stufe] ?? 3) - ({ buy: 0, watch: 1, calm: 2, none: 3 }[y.a.stufe] ?? 3));
+    const fmt = v => v == null || isNaN(v) ? "–" : (v > 0 ? "+" : "") + Number(v).toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + " %";
+    const cls = v => v == null ? "" : v < 0 ? "neg" : v > 0 ? "pos" : "";
+    const esc = t => String(t ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    const range = this._config.range || "veraenderung_1_jahr";
+    const label = { veraenderung_1_monat: "1 M", veraenderung_1_jahr: "1 J", veraenderung_5_jahre: "5 J", veraenderung_10_jahre: "10 J" }[range] || "1 J";
+    this._shell(`<div class="nr-c">
+      <div class="nr-h"><b>Nachkauf-Radar</b><a href="${esc(panel)}">Öffnen ›</a></div>
+      ${!s ? `<div class="nr-note">Noch keine Daten. Läuft das Add-on Nachkauf-Radar?</div>` : rows.length ? `<div class="nr-l">
+        ${rows.map(({ e, a }) => `<div class="nr-r">
+          <span class="nm" title="${esc(a.friendly_name)}">${esc(a.friendly_name)}</span>
+          <span class="pill ${esc(a.stufe || "none")}">${esc(a.signal || "–")}</span>
+          <span class="nums"><b>${isNaN(e.state) ? "–" : Number(e.state).toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${esc(a.unit_of_measurement || "")}</b>
+            <span>1 T <span class="${cls(a.veraenderung_1_tag)}">${fmt(a.veraenderung_1_tag)}</span></span>
+            <span>${label} <span class="${cls(a[range])}">${fmt(a[range])}</span></span></span>
+        </div>`).join("")}
+      </div>` : `<div class="nr-note">Die Watchlist ist leer.</div>`}
+      ${this._fullError && this._config.mode !== "compact" ? `<div class="nr-note">Kompakte Ansicht: ${esc(this._fullError)}</div>` : ""}
+    </div>`);
+  }
+}
+
+if (!customElements.get("nachkauf-radar-card")) {
+  customElements.define("nachkauf-radar-card", NachkaufRadarCard);
+  window.customCards = window.customCards || [];
+  window.customCards.push({ type: "nachkauf-radar-card", name: "Nachkauf-Radar", description: "Watchlist mit Nachkauf-Signalen und Verlauf, wie in der Seitenleiste.", preview: false });
+  console.info(`%c NACHKAUF-RADAR-CARD %c ${NR_VERSION} `, "background:#2a46c4;color:#fff;border-radius:3px 0 0 3px", "background:#e3e8fb;color:#2a46c4;border-radius:0 3px 3px 0");
+}

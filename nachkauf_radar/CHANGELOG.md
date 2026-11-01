@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.4.0
+- Dashboard-Karte `custom:nachkauf-radar-card`: zeigt die komplette Ansicht wie in der Seitenleiste
+  (für Admin-Konten) oder eine kompakte Watchlist (`mode: compact`, automatisch für Konten ohne Admin-Rechte).
+  Das Add-on legt die Karte unter /config/www/nachkauf-radar ab und meldet sie als Dashboard-Ressource an.
+- Sensoren: `sensor.nachkauf_radar_signale` plus ein Sensor je Wertpapier mit Kurs, Signal und Wertentwicklung
+  (1 Tag, 1 Monat, 1/5/10 Jahre). Werden alle 10 Minuten neu gesetzt und überstehen so Neustarts von Home Assistant.
+- Neu in der App: „Im Dashboard anzeigen“ mit fertigem YAML für Karte und Badges.
+- Benachrichtigung: Fehler beim Abruf der Geräteliste werden angezeigt (vorher blieb die Liste still leer).
+  Unterstützt zusätzlich Benachrichtigungs-Entitäten und einen von Hand eingetragenen Dienstnamen.
+- „Datenquellen testen“ prüft auch die Verbindung zu Home Assistant und listet die gefundenen Geräte.
+- Neue Option `dashboard_karte` (Standard: an). Das Add-on braucht dafür Schreibzugriff auf den Konfigurationsordner.
+
 ## 1.3.0
 - Yahoo-Abrufe laufen über einen Helfer mit Chrome-Verbindungssignatur (curl_cffi). Yahoo sperrt Programme mit
   anderer Signatur per HTTP 429; das betraf auch dieses Add-on.

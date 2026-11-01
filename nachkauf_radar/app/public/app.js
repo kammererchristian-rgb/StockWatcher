@@ -412,14 +412,23 @@ $("#s_save").onclick = async () => {
 let servicesLoaded = false;
 async function loadServices() {
   const sel = $("#n_service");
+  nMsg("Lade Geräte aus Home Assistant …", true);
   try {
     const j = await api("api/notify/services");
-    const list = j.services || [];
-    if (notify.service && !list.includes(notify.service)) list.unshift(notify.service);
-    sel.innerHTML = `<option value="">Keine Benachrichtigung</option>` + list.map(s => `<option value="${esc(s)}">${esc(s.startsWith("mobile_app_") ? "Handy: " + s.slice(11).replace(/_/g, " ") : s)}</option>`).join("");
+    const svc = j.services || [], ent = j.entities || [];
+    const known = new Set([...svc, ...ent.map(e => "entity:" + e.id)]);
+    let html = `<option value="">Keine Benachrichtigung</option>`;
+    const phones = svc.filter(s => s.startsWith("mobile_app_")), others = svc.filter(s => !s.startsWith("mobile_app_"));
+    if (phones.length) html += `<optgroup label="Handys (Companion-App)">${phones.map(s => `<option value="${esc(s)}">${esc(s.slice(11).replace(/_/g, " "))}</option>`).join("")}</optgroup>`;
+    if (ent.length) html += `<optgroup label="Benachrichtigungs-Entitäten">${ent.map(e => `<option value="entity:${esc(e.id)}">${esc(e.name)}</option>`).join("")}</optgroup>`;
+    if (others.length) html += `<optgroup label="Weitere Dienste">${others.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join("")}</optgroup>`;
+    if (notify.service && !known.has(notify.service)) html += `<option value="${esc(notify.service)}">${esc(notify.service)} (von Hand)</option>`;
+    sel.innerHTML = html;
     sel.value = notify.service || "";
-    if (j.error) nMsg("Geräteliste nicht abrufbar: " + j.error, false);
     servicesLoaded = true;
+    if (j.error) nMsg("Geräteliste nicht abrufbar: " + j.error, false);
+    else if (!phones.length) nMsg("Kein Handy gefunden. Ist die Home-Assistant-App auf dem Handy eingerichtet und angemeldet? Sonst unten den Dienstnamen eintragen.", false);
+    else nMsg("", true);
   } catch (e) { nMsg("Geräteliste nicht abrufbar: " + e.message, false); }
 }
 function nMsg(t, ok) { const m = $("#n_msg"); m.textContent = t; m.className = "msg " + (ok ? "ok" : "err"); }
@@ -436,13 +445,14 @@ function renderNotify() {
 $("#notifyBox").addEventListener("toggle", () => { if ($("#notifyBox").open && !servicesLoaded) loadServices(); });
 $("#n_save").onclick = async () => {
   try {
-    const r = await api("api/notify", { method: "POST", body: { service: $("#n_service").value, time: $("#n_time").value, weekdaysOnly: $("#n_wd").checked, level: $("#n_level").value } });
-    notify = r.notify; nMsg("Gespeichert.", true);
+    const r = await api("api/notify", { method: "POST", body: { service: ($("#n_manual").value.trim() || $("#n_service").value), time: $("#n_time").value, weekdaysOnly: $("#n_wd").checked, level: $("#n_level").value } });
+    notify = r.notify; $("#n_manual").value = ""; await loadServices(); nMsg("Gespeichert.", true);
   } catch (e) { nMsg("Speichern fehlgeschlagen: " + e.message, false); }
 };
 $("#n_test").onclick = async () => {
-  if (!$("#n_service").value) return nMsg("Bitte zuerst ein Gerät wählen und speichern.", false);
-  if ($("#n_service").value !== notify.service) return nMsg("Bitte die Auswahl zuerst speichern.", false);
+  const chosen = $("#n_manual").value.trim() || $("#n_service").value;
+  if (!chosen) return nMsg("Bitte zuerst ein Gerät wählen und speichern.", false);
+  if (chosen !== notify.service) return nMsg("Bitte die Auswahl zuerst speichern.", false);
   try { await api("api/notify/test", { method: "POST" }); nMsg("Testnachricht gesendet. Sie sollte gleich auf dem Handy erscheinen.", true); }
   catch (e) { nMsg("Senden fehlgeschlagen: " + e.message, false); }
 };
@@ -485,6 +495,64 @@ $("#bakRestore").onclick = async () => {
   let data; try { data = JSON.parse($("#bak").value); } catch { return msgTo("#bakMsg", "Der Text ist keine gültige Sicherung.", false); }
   try { const r = await api("api/restore", { method: "POST", body: data }); msgTo("#bakMsg", `${r.added} Werte hinzugefügt, Kurse werden geladen.`, true); await load(); setTimeout(load, 8000); }
   catch (e) { msgTo("#bakMsg", e.message, false); }
+};
+
+let info = {};
+function dashYaml(kind) {
+  const panel = info.panel || "/local_nachkauf_radar";
+  const per = items.map(it => ({ it, e: "sensor.nachkauf_radar_" + String(it.isin || it.id).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") }));
+  if (kind === "full") return `type: custom:nachkauf-radar-card
+height: 760`
+    + (info.card?.error ? `\n# Hinweis: Die Karte wurde nicht automatisch angemeldet (${info.card.error}).\n# Einstellungen → Dashboards → ⋮ → Ressourcen → /local/nachkauf-radar/nachkauf-radar-card.js (JavaScript-Modul)` : "");
+  if (kind === "compact") return `type: custom:nachkauf-radar-card
+mode: compact
+range: veraenderung_1_jahr   # oder veraenderung_1_monat, veraenderung_5_jahre, veraenderung_10_jahre`;
+  if (kind === "badge") return `type: entity
+entity: sensor.nachkauf_radar_signale
+name: Nachkauf prüfen
+icon: mdi:cart-arrow-down
+color: red
+show_name: true
+show_state: true
+show_icon: true
+tap_action:
+  action: navigate
+  navigation_path: ${panel}
+visibility:
+  - condition: numeric_state
+    entity: sensor.nachkauf_radar_signale
+    above: 0`;
+  if (kind === "badges") return per.length ? per.map(({ it, e }) => `- type: entity
+  entity: ${e}
+  name: ${JSON.stringify(it.name.length > 22 ? it.name.slice(0, 21) + "…" : it.name)}
+  show_name: true
+  state_content:
+    - state
+    - signal
+  tap_action:
+    action: navigate
+    navigation_path: ${panel}`).join("\n") : "# Noch keine Werte auf der Watchlist";
+  const rows = per.map(({ e }) => `      <tr><td>{{ state_attr('${e}','friendly_name') }}</td><td align="right">{{ states('${e}') }}</td><td align="right">{{ state_attr('${e}','veraenderung_1_tag') }} %</td><td align="right">{{ state_attr('${e}','veraenderung_1_jahr') }} %</td><td>{{ state_attr('${e}','signal') }}</td></tr>`).join("\n");
+  return `type: markdown
+title: Nachkauf-Radar
+content: |
+  {% set n = states('sensor.nachkauf_radar_signale') | int(0) %}
+  {% if n > 0 %}**🔴 Nachkauf prüfen:** {{ state_attr('sensor.nachkauf_radar_signale','nachkauf_pruefen') | join(', ') }}{% else %}Keine Nachkauf-Signale.{% endif %}
+
+  <table>
+      <tr><th align="left">Wert</th><th>Kurs</th><th>1 Tag</th><th>1 Jahr</th><th align="left">Signal</th></tr>
+${rows}
+  </table>
+
+  [Nachkauf-Radar öffnen](${panel})`;
+}
+function renderDash() { $("#dashYaml").textContent = dashYaml($("#dashWhich").value); }
+$("#dashWhich").onchange = renderDash;
+$("#dashBox").addEventListener("toggle", async () => { if (!$("#dashBox").open) return; try { info = await api("api/info"); } catch {} renderDash(); });
+$("#dashCopy").onclick = async () => {
+  const t = $("#dashYaml").textContent;
+  try { await navigator.clipboard.writeText(t); msgTo("#dashMsg", "Kopiert.", true); }
+  catch { const r = document.createRange(); r.selectNodeContents($("#dashYaml")); getSelection().removeAllRanges(); getSelection().addRange(r); msgTo("#dashMsg", "Markiert, jetzt kopieren.", true); }
 };
 
 /* ---------------------------------------------------------------- Start */

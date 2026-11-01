@@ -9,7 +9,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { analyze, DEFAULTS, LEVEL_LABEL } from "./public/analysis.js";
+import { analyze, DEFAULTS, LEVEL_LABEL, periodChange } from "./public/analysis.js";
 import { CATALOG, isIsin, searchCatalog } from "./public/catalog.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -17,7 +17,14 @@ const PORT = Number(process.env.PORT || 8099);
 const DATA = process.env.DATA_DIR || "/data";
 const PUBLIC = path.join(__dirname, "public");
 const MOCK = process.env.MOCK === "1";
-const SUP_TOKEN = process.env.SUPERVISOR_TOKEN || "";
+// Zugriffsschlüssel für die Home-Assistant-API: normalerweise als Umgebungsvariable, ältere Namen und s6-Ablage als Ersatz
+const SUP_TOKEN = (() => {
+  for (const k of ["SUPERVISOR_TOKEN", "HASSIO_TOKEN"]) if (process.env[k]) return process.env[k].trim();
+  for (const f of ["/run/s6/container_environment/SUPERVISOR_TOKEN", "/var/run/s6/container_environment/SUPERVISOR_TOKEN"]) {
+    try { const t = readFileSync(f, "utf8").trim(); if (t) return t; } catch {}
+  }
+  return "";
+})();
 const VERSION = (() => { try { return JSON.parse(readFileSync(path.join(__dirname, "package.json"), "utf8")).version; } catch { return "?"; } })();
 
 // Add-on-Optionen (Home Assistant schreibt sie nach /data/options.json)
@@ -27,7 +34,8 @@ const OPTIONS = (() => {
   return {
     eodhdKey: String(process.env.EODHD_API_KEY || o.eodhd_api_key || "").trim(),
     eodhdLimit: Number(process.env.EODHD_DAILY_LIMIT || o.eodhd_daily_limit || 20),
-    maxDiff: Number(process.env.MAX_DIFF || o.max_abweichung_prozent || 1.5) / 100
+    maxDiff: Number(process.env.MAX_DIFF || o.max_abweichung_prozent || 1.5) / 100,
+    card: (process.env.DASHBOARD_CARD ?? String(o.dashboard_karte ?? true)) !== "false"
   };
 })();
 const MOCK_EOD_FAIL = process.env.MOCK_EOD_FAIL === "1";
@@ -448,7 +456,8 @@ async function refreshItem(item, force = false) {
 
 /* ------------------------------------------------------- Home Assistant */
 async function ha(method, apiPath, body) {
-  if (MOCK || !SUP_TOKEN) { log("[HA]", method, apiPath, body ? JSON.stringify(body).slice(0, 300) : ""); return MOCK ? mockHa(apiPath) : null; }
+  if (MOCK) { log("[HA]", method, apiPath, body ? JSON.stringify(body).slice(0, 300) : ""); return mockHa(apiPath); }
+  if (!SUP_TOKEN) throw new Error("Kein Zugriffsschlüssel für Home Assistant (SUPERVISOR_TOKEN fehlt). Add-on neu starten.");
   const r = await fetch("http://supervisor" + apiPath, {
     method, headers: { Authorization: `Bearer ${SUP_TOKEN}`, "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(15000)
@@ -458,39 +467,145 @@ async function ha(method, apiPath, body) {
   try { return JSON.parse(t); } catch { return t; }
 }
 let ingressPath = null;
+let addonSlug = null;
 async function getIngressPath() {
   if (ingressPath) return ingressPath;
-  try { const j = await ha("GET", "/addons/self/info"); const slug = j?.data?.slug; if (slug) ingressPath = `/hassio/ingress/${slug}`; }
+  try { const j = await ha("GET", "/addons/self/info"); const slug = j?.data?.slug; if (slug) { addonSlug = slug; ingressPath = `/${slug}`; } }
   catch (e) { log("Add-on-Info nicht verfügbar:", e.message); }
-  return ingressPath || "/hassio/ingress/local_nachkauf_radar";
+  return ingressPath || "/local_nachkauf_radar";
 }
+// Ziele: klassische Dienste (notify.mobile_app_…) und neuere Benachrichtigungs-Entitäten (notify.…, über notify.send_message)
 async function listNotifyServices() {
   const j = await ha("GET", "/core/api/services");
-  const n = (Array.isArray(j) ? j : []).find(x => x.domain === "notify");
-  return n ? Object.keys(n.services).sort((a, b) => (b.startsWith("mobile_app_") - a.startsWith("mobile_app_")) || a.localeCompare(b)) : [];
+  if (!Array.isArray(j)) throw new Error("Unerwartete Antwort von Home Assistant auf /api/services");
+  const n = j.find(x => x.domain === "notify");
+  const services = n ? Object.keys(n.services).filter(s => s !== "send_message")
+    .sort((a, b) => (b.startsWith("mobile_app_") - a.startsWith("mobile_app_")) || a.localeCompare(b)) : [];
+  let entities = [];
+  try {
+    const st = await ha("GET", "/core/api/states");
+    entities = (Array.isArray(st) ? st : []).filter(e => e.entity_id?.startsWith("notify."))
+      .map(e => ({ id: e.entity_id, name: e.attributes?.friendly_name || e.entity_id }));
+  } catch {}
+  return { services, entities, domains: j.length };
 }
 async function sendNotify(title, message) {
-  const svc = state.notify.service;
+  const svc = String(state.notify.service || "").trim();
   if (!svc) throw new Error("Kein Benachrichtigungsdienst gewählt");
   const click = await getIngressPath();
-  await ha("POST", `/core/api/services/notify/${encodeURIComponent(svc)}`, {
+  if (svc.startsWith("entity:")) {
+    await ha("POST", "/core/api/services/notify/send_message", { entity_id: svc.slice(7), title, message });
+    return;
+  }
+  const name = svc.replace(/^notify\./, "");
+  await ha("POST", `/core/api/services/notify/${encodeURIComponent(name)}`, {
     title, message,
     data: { clickAction: click, url: click, tag: "nachkauf-radar", group: "nachkauf-radar", channel: "Nachkauf-Radar" }
   });
 }
-async function publishSensor(results) {
-  const buy = results.filter(r => r.level === "buy"), watch = results.filter(r => r.level === "watch");
-  try {
-    await ha("POST", "/core/api/states/sensor.nachkauf_radar_signale", {
-      state: String(buy.length),
-      attributes: {
-        friendly_name: "Nachkauf-Radar Signale", icon: "mdi:chart-line-variant",
-        nachkauf_pruefen: buy.map(r => r.name), beobachten: watch.map(r => r.name),
-        letzte_pruefung: new Date().toISOString()
+// Sensoren für Dashboards und Automationen. Über die REST-API gesetzte Zustände überleben keinen Neustart von
+// Home Assistant, deshalb setzt das Add-on sie alle 10 Minuten neu.
+const r2 = v => v == null || !isFinite(v) ? null : Math.round(v * 10000) / 100;      // Anteil → Prozent mit 2 Stellen
+const entityOf = it => "sensor.nachkauf_radar_" + String(it.isin || it.id).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+let publishedEntities = new Set();
+let publishing = null;
+async function publishSensors(reason = "") {
+  if (publishing) return publishing;
+  publishing = (async () => {
+    if (!SUP_TOKEN && !MOCK) return;
+    const rows = [];
+    for (const it of state.watchlist) {
+      const a = analyze(mergedSeries(await readPrices(it.id)), state.settings);
+      rows.push({ it, a });
+    }
+    const buy = rows.filter(r => r.a.level === "buy"), watch = rows.filter(r => r.a.level === "watch");
+    const panel = await getIngressPath();
+    try {
+      await ha("POST", "/core/api/states/sensor.nachkauf_radar_signale", {
+        state: String(buy.length),
+        attributes: {
+          friendly_name: "Nachkauf-Radar", icon: buy.length ? "mdi:cart-arrow-down" : "mdi:chart-line-variant",
+          unit_of_measurement: "Signale", state_class: "measurement",
+          nachkauf_pruefen: buy.map(r => r.it.name), beobachten: watch.map(r => r.it.name),
+          anzahl_beobachten: watch.length, anzahl_werte: rows.length,
+          letzte_pruefung: state.lastRun, aktualisiert: new Date().toISOString(), panel, addon_slug: addonSlug
+        }
+      });
+      const now = new Set();
+      for (const { it, a } of rows) {
+        const e = entityOf(it); now.add(e);
+        const pc = m => periodChange(a, m);
+        await ha("POST", `/core/api/states/${e}`, {
+          state: a.last != null ? String(Math.round(a.last * 100) / 100) : "unknown",
+          attributes: {
+            friendly_name: it.name, icon: a.level === "buy" ? "mdi:cart-arrow-down" : a.level === "watch" ? "mdi:eye-outline" : "mdi:chart-line",
+            unit_of_measurement: it.currency || "EUR", state_class: "measurement", device_class: "monetary",
+            signal: LEVEL_LABEL[a.level], stufe: a.level, punkte: a.score,
+            isin: it.isin, symbol: it.symbol, typ: it.type, schlusskurs_vom: a.lastDate,
+            veraenderung_1_tag: r2(a.r1), veraenderung_1_monat: r2(pc(1)?.chg), veraenderung_1_jahr: r2(pc(12)?.chg),
+            veraenderung_5_jahre: r2(pc(60)?.chg), veraenderung_10_jahre: r2(pc(120)?.chg),
+            vom_52w_hoch: r2(a.dd), rsi_14: a.rsi != null ? Math.round(a.rsi * 10) / 10 : null,
+            historie_ab: a.dates[0] || null, panel
+          }
+        });
       }
-    });
-  } catch (e) { log("Sensor konnte nicht gesetzt werden:", e.message); }
+      // Sensoren entfernter Werte löschen
+      for (const e of publishedEntities) if (!now.has(e)) { try { await ha("DELETE", `/core/api/states/${e}`); } catch {} }
+      publishedEntities = now;
+      if (reason) log(`Sensoren gesetzt (${reason}): ${rows.length} Werte, ${buy.length}× Nachkauf prüfen`);
+    } catch (e) { log("Sensoren konnten nicht gesetzt werden:", e.message); }
+  })().finally(() => { publishing = null; });
+  return publishing;
 }
+setInterval(() => publishSensors(), 10 * 60e3);
+
+/* ------------------------------------------------ Dashboard-Karte bereitstellen */
+// Legt die Karte unter /config/www/nachkauf-radar/ ab (im Browser: /local/nachkauf-radar/…) und meldet sie
+// als Dashboard-Ressource an. Klappt das Anmelden nicht (z. B. Dashboards im YAML-Modus), steht im Protokoll, was zu tun ist.
+const HA_CONFIG = process.env.HA_CONFIG_DIR || "/homeassistant";
+const CARD_URL = "/local/nachkauf-radar/nachkauf-radar-card.js";
+let cardStatus = { installed: false, resource: null, error: null };
+function haWs(commands) {
+  return new Promise((resolve, reject) => {
+    if (typeof WebSocket === "undefined") return reject(new Error("WebSocket nicht verfügbar"));
+    const ws = new WebSocket(process.env.HA_WS_URL || "ws://supervisor/core/websocket");
+    let id = 0; const results = []; const timer = setTimeout(() => { try { ws.close(); } catch {} reject(new Error("Zeitüberschreitung")); }, 20000);
+    const next = () => {
+      if (id >= commands.length) { clearTimeout(timer); ws.close(); return resolve(results); }
+      const c = commands[id]; id++;
+      ws.send(JSON.stringify({ id, ...(typeof c === "function" ? c(results) : c) }));
+    };
+    ws.onmessage = ev => {
+      const m = JSON.parse(ev.data);
+      if (m.type === "auth_required") ws.send(JSON.stringify({ type: "auth", access_token: SUP_TOKEN }));
+      else if (m.type === "auth_invalid") { clearTimeout(timer); reject(new Error("Anmeldung an Home Assistant abgelehnt")); }
+      else if (m.type === "auth_ok") next();
+      else if (m.type === "result") { results.push(m); if (!m.success && !commands[id - 1]?.optional) { clearTimeout(timer); ws.close(); return reject(new Error(m.error?.message || "Fehler")); } next(); }
+    };
+    ws.onerror = () => { clearTimeout(timer); reject(new Error("Keine Verbindung zu Home Assistant")); };
+  });
+}
+async function installCard() {
+  if (!OPTIONS.card || (!SUP_TOKEN && !process.env.HA_WS_URL)) return;
+  try {
+    const src = (await fs.readFile(path.join(__dirname, "card", "nachkauf-radar-card.js"), "utf8")).replace("__VERSION__", VERSION);
+    const dir = path.join(HA_CONFIG, "www", "nachkauf-radar"), file = path.join(dir, "nachkauf-radar-card.js");
+    let old = ""; try { old = await fs.readFile(file, "utf8"); } catch {}
+    if (old !== src) { await fs.mkdir(dir, { recursive: true }); await fs.writeFile(file, src); log("Dashboard-Karte abgelegt:", file); }
+    cardStatus.installed = true;
+    const want = `${CARD_URL}?v=${VERSION}`;
+    const [list] = await haWs([{ type: "lovelace/resources" }]);
+    const mine = (list.result || []).find(r => String(r.url).split("?")[0] === CARD_URL);
+    if (!mine) { await haWs([{ type: "lovelace/resources/create", res_type: "module", url: want }]); log("Dashboard-Ressource angemeldet:", want); }
+    else if (mine.url !== want) { await haWs([{ type: "lovelace/resources/update", resource_id: mine.id, res_type: "module", url: want }]); log("Dashboard-Ressource aktualisiert:", want); }
+    cardStatus.resource = want; cardStatus.error = null;
+  } catch (e) {
+    cardStatus.error = e.message;
+    log(`Dashboard-Karte: automatische Anmeldung nicht möglich (${e.message}). Von Hand: Einstellungen → Dashboards → ⋮ → Ressourcen → ${CARD_URL} als JavaScript-Modul hinzufügen.`);
+  }
+}
+setTimeout(() => installCard(), 5e3);
+setTimeout(() => publishSensors("Start"), 15e3);
 
 /* ------------------------------------------------------- Tägliche Prüfung */
 const pct = v => (v > 0 ? "+" : "") + (v * 100).toFixed(1).replace(".", ",") + " %";
@@ -526,7 +641,7 @@ async function runCheck(reason = "Zeitplan") {
       try { await sendNotify(title, msg); log("Benachrichtigung gesendet:", fresh.length); }
       catch (e) { log("Benachrichtigung fehlgeschlagen:", e.message); }
     }
-    await publishSensor(results);
+    await publishSensors("Prüfung");
     state.lastRun = new Date().toISOString();
     state.lastResult = { count: results.length, buy: results.filter(r => r.level === "buy").length,
       watch: results.filter(r => r.level === "watch").length, notified: fresh.length,
@@ -592,7 +707,8 @@ const routes = {
     throw Object.assign(new Error("Bisheriges Add-on nicht erreichbar. Läuft es noch? (" + lastErr + ")"), { status: 502 });
   },
 
-  "GET /api/info": async () => ({ version: VERSION, mock: MOCK, haConnected: !!SUP_TOKEN || MOCK, eodhd: EOD_ENABLED() }),
+  "GET /api/info": async () => ({ version: VERSION, mock: MOCK, haConnected: !!SUP_TOKEN || MOCK, eodhd: EOD_ENABLED(),
+    panel: await getIngressPath(), card: cardStatus, sensors: ["sensor.nachkauf_radar_signale", ...state.watchlist.map(entityOf)] }),
 
   "GET /api/state": async () => {
     const items = [];
@@ -612,6 +728,7 @@ const routes = {
       await refreshItem(it, !!body.force);
       if (!MOCK && body.force) await new Promise(r => setTimeout(r, 400));
     }
+    publishSensors(body.force ? "Aktualisierung" : "");
     return { ok: true };
   },
 
@@ -649,6 +766,7 @@ const routes = {
     await saveState();
     const p = await refreshItem(item, true);
     const error = p.series?.length ? null : "Keine Kursquelle gefunden. Kurse können per Import eingetragen werden.";
+    publishSensors("neuer Wert");
     return { ok: true, id, symbol: item.symbol, eodSymbol: item.eodSymbol || "", error };
   },
 
@@ -658,6 +776,7 @@ const routes = {
     delete state.alerts[id];
     await saveState();
     try { await fs.unlink(priceFile(id)); } catch {}
+    publishSensors("Wert entfernt");
     return { ok: true };
   },
 
@@ -677,13 +796,13 @@ const routes = {
     const n = {};
     for (const k of Object.keys(DEFAULTS)) { const v = Number(b[k]); n[k] = isFinite(v) ? v : DEFAULTS[k]; }
     if (n.dd2 < n.dd1) n.dd2 = n.dd1;
-    state.settings = n; await saveState();
+    state.settings = n; await saveState(); publishSensors("Schwellen");
     return { ok: true, settings: n };
   },
 
   "GET /api/notify/services": async () => {
-    try { return { services: await listNotifyServices() }; }
-    catch (e) { return { services: [], error: e.message }; }
+    try { return await listNotifyServices(); }
+    catch (e) { log("Geräteliste:", e.message); return { services: [], entities: [], error: e.message }; }
   },
 
   "POST /api/notify": async (_q, b) => {
@@ -715,6 +834,12 @@ const routes = {
       catch (e) { out.eodhd = { ok: false, fehler: e.message, abrufe_heute: state.eodUsage.calls, limit: OPTIONS.eodhdLimit }; }
       saveState();
     } else out.eodhd = { ok: false, fehler: "kein API-Schlüssel eingetragen" };
+    try {
+      const api = await ha("GET", "/core/api/");
+      const ns = await listNotifyServices();
+      out.home_assistant = { ok: true, zugriffsschluessel: !!SUP_TOKEN || MOCK, api: api?.message || api, benachrichtigungsdienste: ns.services, benachrichtigungs_entitaeten: ns.entities.map(e => e.id),
+        dashboard_karte: cardStatus };
+    } catch (e) { out.home_assistant = { ok: false, zugriffsschluessel: !!SUP_TOKEN, fehler: e.message, dashboard_karte: cardStatus }; }
     log("Diagnose:", JSON.stringify(out));
     return out;
   },
@@ -794,6 +919,8 @@ function mockEod(apiPath) {
 function mockHa(apiPath) {
   if (apiPath === "/core/api/services") return [{ domain: "notify", services: { mobile_app_pixel_8: {}, notify: {} } }];
   if (apiPath === "/addons/self/info") return { data: { slug: "local_nachkauf_radar" } };
+  if (apiPath === "/core/api/") return { message: "API running." };
+  if (apiPath === "/core/api/states") return [{ entity_id: "notify.tablet_flur", attributes: { friendly_name: "Tablet Flur" } }, { entity_id: "light.kueche", attributes: {} }];
   return {};
 }
 
