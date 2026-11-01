@@ -1,5 +1,5 @@
 name: Nachkauf-Radar
-version: "1.5.0"
+version: "1.6.0"
 slug: nachkauf_radar
 description: Watchlist für ETFs, Aktien und Fonds mit Hinweisen bei außergewöhnlichen Kursverlusten
 url: https://github.com/kammererchristian-rgb/StockWatcher
@@ -19,10 +19,12 @@ map:
   - homeassistant_config:rw
 options:
   dashboard_karte: true
+  dashboard_anlegen: true
   eodhd_daily_limit: 20
   max_abweichung_prozent: 1.5
 schema:
   dashboard_karte: bool
+  dashboard_anlegen: bool
   eodhd_api_key: password?
   eodhd_daily_limit: int(1,100000)
   max_abweichung_prozent: float(0.1,20)

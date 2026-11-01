@@ -13,6 +13,10 @@ Das Add-on erscheint in der Seitenleiste als **Nachkauf-Radar**, auch in der Hom
   Bei Katalogeinträgen wird automatisch der Xetra-Handelsplatz bevorzugt.
 - **Details:** Eintrag in der Watchlist antippen: Chart mit 200-Tage-Linie und 52-Wochen-Hoch,
   Kennzahlen und die Begründung des Signals.
+- **Tagesergebnisse:** Die Kachel „Tagesergebnis“ zeigt die durchschnittliche Tagesveränderung der Watchlist
+  (alle Werte gleich gewichtet) und wie viele Werte gestiegen bzw. gefallen sind. Darunter steht jeder Wert mit seiner
+  Tagesveränderung, vom schwächsten zum stärksten. Hat ein Wert noch keinen Kurs vom letzten Handelstag
+  (z. B. Fonds mit späterer Preisfeststellung), steht sein Datum dabei.
 - **Verlauf und Wertentwicklung:** Über „Entwicklung 1 M · 1 J · 5 J · 10 J“ in der Watchlist bzw. die Kacheln in der
   Detailansicht den Zeitraum wählen. Die Watchlist zeigt dann die Veränderung und den Mini-Chart für diesen Zeitraum,
   die Detailansicht den Chart. Bei 5 und 10 Jahren steht zusätzlich die durchschnittliche Entwicklung pro Jahr (p. a.).
@@ -49,22 +53,37 @@ Tagesverlust hat. Ein Tipp auf die Nachricht öffnet das Radar.
 
 ## Dashboard
 
-**Karte:** Das Add-on bringt die Karte `custom:nachkauf-radar-card` mit und meldet sie beim Start als
-Dashboard-Ressource an. Im Dashboard **Bearbeiten → Karte hinzufügen → Manuell**:
+**Fertiges Dashboard, ohne YAML:** Beim ersten Start legt das Add-on das Dashboard **Nachkauf-Radar** in der
+Seitenleiste an:
+
+- **Übersicht:** Kacheln (Nachkauf prüfen, Beobachten, Unauffällig, Tagesergebnis) und die Tagesergebnisse je Wert,
+  darunter Watchlist und Charts nebeneinander.
+- **Radar:** die komplette Oberfläche auf voller Seite.
+
+Eigene Änderungen am Dashboard bleiben erhalten. In der App unter **Im Dashboard anzeigen** öffnet
+„Dashboard öffnen“ es direkt; „Dashboard zurücksetzen“ stellt den Ausgangszustand wieder her. Abschalten lässt sich
+das Anlegen mit der Option `dashboard_anlegen`.
+
+**Karten in anderen Dashboards, ohne YAML:** **Bearbeiten → Karte hinzufügen**, nach „Nachkauf-Radar“ suchen:
+
+| Karte | Inhalt |
+|---|---|
+| Nachkauf-Radar: Übersicht | Kacheln mit Tagesergebnis und Tagesergebnisse je Wert |
+| Nachkauf-Radar: Watchlist | Kacheln, Tagesergebnisse und Watchlist mit Zeitraum-Umschalter |
+| Nachkauf-Radar: Charts | Chart je Wert, 1 Monat bis 10 Jahre; im Editor auf einzelne ISINs einschränkbar |
+| Nachkauf-Radar: Volle Ansicht | komplette Oberfläche wie in der Seitenleiste |
+
+Im Karten-Editor lassen sich Ansicht, ISINs und Höhe per Auswahl ändern. Als YAML sieht das so aus:
 
 ```yaml
 type: custom:nachkauf-radar-card
-view: watchlist     # Kacheln + Watchlist mit Zeitraum-Umschalter und Mini-Charts
+view: charts          # summary | watchlist | charts | app
+isin: IE00B4L5Y983    # optional, mehrere mit Komma
 ```
 
-| `view` | Inhalt | Höhe |
-|---|---|---|
-| `watchlist` | Kacheln (Nachkauf prüfen, Beobachten, Unauffällig, letzter Schlusskurs) und Watchlist | passt sich an |
-| `summary` | nur die vier Kacheln | passt sich an |
-| `app` | komplette Oberfläche wie in der Seitenleiste | `height:` (Standard 760) |
-
-Bei schmalen Karten blendet die Watchlist der Reihe nach RSI, „vom Hoch“, „1 Tag“, den Mini-Chart und zuletzt den
-Kurs aus; Signal und Entwicklung bleiben immer sichtbar. Ein Tipp auf eine Zeile oder Kachel öffnet das volle Radar.
+Die Höhe passt sich bei `summary`, `watchlist` und `charts` automatisch an. Bei schmalen Karten blendet die
+Watchlist der Reihe nach RSI, „vom Hoch“, „1 Tag“, den Mini-Chart und zuletzt den Kurs aus; Signal und Entwicklung
+bleiben sichtbar. Ein Tipp auf eine Zeile, Kachel oder einen Chart öffnet das volle Radar.
 
 Die Karte zeigt die gleiche Darstellung wie die Seitenleiste. Dafür braucht das angemeldete Konto Admin-Rechte
 (wie für die Seitenleiste auch). Für andere Konten, etwa ein Wandtablet, zeigt sie automatisch eine kompakte

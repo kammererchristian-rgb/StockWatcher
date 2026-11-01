@@ -35,7 +35,8 @@ const OPTIONS = (() => {
     eodhdKey: String(process.env.EODHD_API_KEY || o.eodhd_api_key || "").trim(),
     eodhdLimit: Number(process.env.EODHD_DAILY_LIMIT || o.eodhd_daily_limit || 20),
     maxDiff: Number(process.env.MAX_DIFF || o.max_abweichung_prozent || 1.5) / 100,
-    card: (process.env.DASHBOARD_CARD ?? String(o.dashboard_karte ?? true)) !== "false"
+    card: (process.env.DASHBOARD_CARD ?? String(o.dashboard_karte ?? true)) !== "false",
+    dashboard: (process.env.DASHBOARD_CREATE ?? String(o.dashboard_anlegen ?? true)) !== "false"
   };
 })();
 const MOCK_EOD_FAIL = process.env.MOCK_EOD_FAIL === "1";
@@ -618,7 +619,43 @@ async function checkCardServed() {
   } catch (e) { cardStatus.served = null; cardStatus.hint = null; }
   if (cardStatus.hint) log("Dashboard-Karte:", cardStatus.hint);
 }
-setTimeout(() => installCard(), 5e3);
+/* ------------------------------------------------ Fertiges Dashboard anlegen */
+// Einmalig beim ersten Start (oder per Knopf in der App): Dashboard „Nachkauf-Radar“ mit Übersicht, Watchlist, Charts
+// und der vollen Ansicht. Ein vorhandenes Dashboard wird nur auf ausdrücklichen Wunsch (reset) überschrieben.
+const DASH_URL = "nachkauf-radar";
+function dashboardConfig() {
+  const card = (view, extra = {}) => ({ type: "custom:nachkauf-radar-card", view, grid_options: { columns: "full" }, ...extra });
+  return {
+    title: "Nachkauf-Radar",
+    views: [
+      { title: "Übersicht", path: "uebersicht", icon: "mdi:view-dashboard-outline", type: "sections", max_columns: 2,
+        sections: [
+          { type: "grid", column_span: 2, cards: [card("summary")] },
+          { type: "grid", cards: [card("watchlist")] },
+          { type: "grid", cards: [card("charts")] }
+        ] },
+      { title: "Radar", path: "radar", icon: "mdi:chart-line-variant", type: "panel", cards: [{ type: "custom:nachkauf-radar-card", view: "app", height: "fill" }] }
+    ]
+  };
+}
+async function createDashboard(reset = false) {
+  const [list] = await haWs([{ type: "lovelace/dashboards/list" }]);
+  const exists = (list.result || []).some(d => d.url_path === DASH_URL);
+  if (exists && !reset) return { ok: true, created: false, exists: true, url: "/" + DASH_URL };
+  const cmds = [];
+  if (!exists) cmds.push({ type: "lovelace/dashboards/create", url_path: DASH_URL, title: "Nachkauf-Radar", icon: "mdi:finance", show_in_sidebar: true, require_admin: false, mode: "storage" });
+  cmds.push({ type: "lovelace/config/save", url_path: DASH_URL, config: dashboardConfig() });
+  await haWs(cmds);
+  state.dashboardCreated = new Date().toISOString(); await saveState();
+  log(exists ? "Dashboard zurückgesetzt:" : "Dashboard angelegt:", "/" + DASH_URL);
+  return { ok: true, created: !exists, reset: exists, url: "/" + DASH_URL };
+}
+async function autoDashboard() {
+  if (!OPTIONS.dashboard || !OPTIONS.card || state.dashboardCreated || (!SUP_TOKEN && !process.env.HA_WS_URL)) return;
+  try { const r = await createDashboard(false); if (!r.created) { state.dashboardCreated = "vorhanden"; await saveState(); } }
+  catch (e) { log("Dashboard konnte nicht angelegt werden:", e.message); }
+}
+setTimeout(async () => { await installCard(); await autoDashboard(); }, 5e3);
 setInterval(() => { if (cardStatus.served === false) checkCardServed(); }, 5 * 60e3);
 setTimeout(() => publishSensors("Start"), 15e3);
 
@@ -720,6 +757,11 @@ const routes = {
       } catch (e) { lastErr = `${h}: ${e.message}`; }
     }
     throw Object.assign(new Error("Bisheriges Add-on nicht erreichbar. Läuft es noch? (" + lastErr + ")"), { status: 502 });
+  },
+
+  "POST /api/dashboard": async (_q, b) => {
+    try { return await createDashboard(!!b.reset); }
+    catch (e) { throw Object.assign(new Error("Dashboard konnte nicht angelegt werden: " + e.message), { status: 502 }); }
   },
 
   "GET /api/info": async () => ({ version: VERSION, mock: MOCK, haConnected: !!SUP_TOKEN || MOCK, eodhd: EOD_ENABLED(),

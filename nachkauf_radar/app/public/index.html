@@ -62,6 +62,18 @@ button{cursor:pointer}
 .sum b{font-family:var(--f-display);font-size:28px;font-weight:700;line-height:1.1}
 .sum.buy b{color:var(--buy)} .sum.watch b{color:var(--watch)} .sum.calm b{color:var(--calm)}
 .sum span{font-size:13px;color:var(--muted)}
+.sum .ud{font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums;display:flex;gap:8px}
+.sum .ud span{font-size:inherit}
+.sum.day b{font-size:24px;padding-top:2px}
+.sum b.neg{color:var(--buy)} .sum b.pos{color:var(--calm)}
+.dayres{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.dr-l{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;margin-right:4px}
+.dr{display:inline-flex;align-items:baseline;gap:6px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:4px 10px;font-size:13px;max-width:100%;min-width:0}
+.dr .dr-n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:190px}
+.dr b{font-weight:500;font-size:12.5px}
+.dr.neg b{color:var(--buy)} .dr.pos b{color:var(--calm)}
+.dr.neg{border-color:color-mix(in srgb,var(--buy) 35%,var(--line))} .dr.pos{border-color:color-mix(in srgb,var(--calm) 35%,var(--line))}
+.dr small{font-size:11px;color:var(--muted)}
 
 .listhead{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
 .tablewrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:12px}
@@ -138,10 +150,24 @@ body.embed .wrap{padding-block:4px 6px;gap:14px;max-width:none}
 body.embed header.top, body.embed .search, body.embed #detail, body.embed details.box, body.embed footer, body.embed #refreshBtn{display:none!important}
 body.embed-summary .wrap > section.stack{display:none!important}
 body.embed tbody tr[data-id], body.embed .sum{cursor:pointer}
+body.embed .sum.day b{font-size:20px}
+body.embed-charts .summary, body.embed-charts .dayres, body.embed-charts .wrap > section.stack:not(#chartsGrid){display:none!important}
+body.embed-charts #chartsGrid{display:grid!important}
+.cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.cgrid.single{grid-template-columns:1fr}
+.ctile{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px 8px;display:grid;gap:6px;min-width:0;cursor:pointer}
+.ct-h{display:flex;justify-content:space-between;align-items:center;gap:8px;min-width:0}
+.ct-n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.ct-k{display:flex;gap:14px;flex-wrap:wrap;font-size:13.5px}
+.ct-k small{color:var(--muted)}
+.ct-c{min-width:0}
+.ct-c svg{display:block;width:100%;height:auto}
+body.embed .dr .dr-n{max-width:130px}
 body.embed .summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
 body.embed .sum{padding:10px 12px;min-width:0}
 body.embed .sum b{font-size:24px}
-body.embed .sum span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+body.embed .sum span{white-space:normal;line-height:1.25;font-size:12.5px}
+body.embed .sum .ud{flex-wrap:wrap;gap:6px}
 body.embed table{min-width:0}
 body.embed .iname{max-width:none;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 body.embed td:first-child{min-width:140px}
@@ -185,6 +211,7 @@ footer{font-size:12.5px;color:var(--muted);max-width:80ch}
   </section>
 
   <section class="summary" id="summary" aria-label="Signalübersicht"></section>
+  <section class="dayres" id="dayres" aria-label="Tagesergebnisse" hidden></section>
 
   <section class="stack">
     <div class="listhead"><h2>Watchlist</h2><div class="row"><span class="note">Entwicklung</span><div class="seg" id="rangeSeg" role="group" aria-label="Zeitraum"></div></div></div>
@@ -197,6 +224,7 @@ footer{font-size:12.5px;color:var(--muted);max-width:80ch}
     <div class="listhead"><span class="note" id="partialNote" hidden>* Kurshistorie kürzer als der Zeitraum; Wert seit Beginn der Historie.</span><span class="note" id="status"></span></div>
   </section>
 
+  <section class="stack" id="chartsGrid" hidden></section>
   <section class="panel" id="detail" hidden></section>
 
   <details class="box" id="notifyBox">
@@ -220,8 +248,11 @@ footer{font-size:12.5px;color:var(--muted);max-width:80ch}
   <details class="box" id="dashBox">
     <summary>Im Dashboard anzeigen</summary>
     <div class="stack" style="margin-top:10px">
+      <p class="note" style="margin:0"><b>Ohne YAML:</b> Das Add-on legt ein fertiges Dashboard „Nachkauf-Radar“ mit Übersicht, Tagesergebnissen, Watchlist, Charts und voller Ansicht an. In anderen Dashboards findest du die Karten unter <b>Karte hinzufügen</b> → „Nachkauf-Radar: …“.</p>
+      <div class="row"><button class="btn primary" id="dashOpen">Dashboard öffnen</button><button class="btn" id="dashReset">Dashboard zurücksetzen</button><span class="msg" id="dashMsg2"></span></div>
+      <p class="note" style="margin:8px 0 0">Oder von Hand als YAML:</p>
       <p class="note" style="margin:0">Das Add-on stellt Sensoren bereit: <code>sensor.nachkauf_radar_signale</code> (Anzahl „Nachkauf prüfen“) und einen Sensor je Wertpapier mit Kurs, Signal und Wertentwicklung. Die Karte <code>custom:nachkauf-radar-card</code> bringt das Add-on mit. Im Dashboard: <b>Bearbeiten → Karte hinzufügen → Manuell</b> (bzw. <b>Badge hinzufügen</b>), dann den Text unten einfügen.</p>
-      <label class="field">Vorlage<select id="dashWhich"><option value="watchlist">Karte: Kacheln und Watchlist</option><option value="summary">Karte: nur die vier Kacheln</option><option value="full">Karte: volle Ansicht wie in der Seitenleiste</option><option value="compact">Karte: kompakte Watchlist</option><option value="badge">Badge: erscheint nur bei Nachkauf-Signal</option><option value="badges">Badges: ein Badge je Wertpapier</option><option value="card">Markdown-Karte ohne Zusatzkarte</option></select></label>
+      <label class="field">Vorlage<select id="dashWhich"><option value="watchlist">Karte: Kacheln und Watchlist</option><option value="summary">Karte: Kacheln und Tagesergebnisse</option><option value="charts">Karte: Charts</option><option value="full">Karte: volle Ansicht wie in der Seitenleiste</option><option value="compact">Karte: kompakte Watchlist</option><option value="badge">Badge: erscheint nur bei Nachkauf-Signal</option><option value="badges">Badges: ein Badge je Wertpapier</option><option value="card">Markdown-Karte ohne Zusatzkarte</option></select></label>
       <pre id="dashYaml" class="diag"></pre>
       <div class="row"><button class="btn" id="dashCopy">Kopieren</button><span class="msg" id="dashMsg"></span></div>
     </div>

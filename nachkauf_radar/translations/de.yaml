@@ -1,4 +1,7 @@
 configuration:
+  dashboard_anlegen:
+    name: Dashboard „Nachkauf-Radar“ anlegen
+    description: Legt beim ersten Start ein fertiges Dashboard mit Übersicht, Watchlist, Charts und voller Ansicht an. Eigene Änderungen daran bleiben erhalten.
   dashboard_karte:
     name: Dashboard-Karte bereitstellen
     description: Legt die Karte „custom:nachkauf-radar-card“ in /config/www/nachkauf-radar ab und meldet sie als Dashboard-Ressource an.

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.6.0
+- Übersicht: Kachel „Tagesergebnis“ (Ø-Tagesveränderung, Anzahl gestiegen/gefallen) und Tagesergebnisse je Wert.
+- Neue Kartenansicht `charts`: Chart je Wert mit Zeitraum-Umschalter; mit `isin` auf einzelne Werte einschränkbar.
+- Ohne YAML: Das Add-on legt beim ersten Start das Dashboard „Nachkauf-Radar“ an (Übersicht, Watchlist, Charts,
+  volle Ansicht). Karten erscheinen in „Karte hinzufügen“ als „Nachkauf-Radar: …“ und haben einen Editor.
+- Neue Option `dashboard_anlegen` (Standard: an).
+
 ## 1.5.0
 - Dashboard-Karte mit `view`: `watchlist` (Kacheln + Watchlist) und `summary` (nur Kacheln) im gleichen Aussehen wie
   die App, ohne Suche und Einstellungen; Höhe passt sich automatisch an. `app` zeigt weiter die komplette Oberfläche.

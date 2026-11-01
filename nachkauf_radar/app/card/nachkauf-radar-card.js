@@ -15,13 +15,14 @@ const SUMMARY = "sensor.nachkauf_radar_signale";
 const PREFIX = "sensor.nachkauf_radar_";
 
 class NachkaufRadarCard extends HTMLElement {
-  static getStubConfig() { return { view: "watchlist" }; }
-  static getConfigElement() { return undefined; }
+  static getStubConfig() { return { view: "app" }; }
+  static getConfigElement() { return document.createElement("nachkauf-radar-card-editor"); }
 
   setConfig(config) {
     this._config = { mode: "full", view: "app", ...(config || {}) };
-    if (!["app", "watchlist", "summary"].includes(this._config.view)) throw new Error("view muss app, watchlist oder summary sein");
+    if (!["app", "watchlist", "summary", "charts"].includes(this._config.view)) throw new Error("view muss app, watchlist, summary oder charts sein");
     this._auto = this._config.view !== "app" && !this._config.height;
+    this._frameH = null;
     this._mode = null;
     if (this._hass) this._start();
   }
@@ -33,8 +34,9 @@ class NachkaufRadarCard extends HTMLElement {
     else if (this._mode === "compact") this._renderCompact();
   }
 
-  _height() { return this._frameH || Number(this._config?.height) || { app: 760, watchlist: 460, summary: 110 }[this._config?.view] || 760; }
-  getCardSize() { return this._mode === "compact" ? 4 : Math.ceil(this._height() / 50); }
+  _height() { return this._frameH || Number(this._config?.height) || { app: 760, watchlist: 460, summary: 160, charts: 420 }[this._config?.view] || 760; }
+  _fill() { return this._config?.height === "fill"; }
+  getCardSize() { return this._mode === "compact" ? 4 : this._fill() ? 12 : Math.ceil(this._height() / 50); }
   getGridOptions() { return { columns: 12, min_columns: 6, rows: this._mode === "compact" || this._auto ? "auto" : Math.ceil(this._height() / 56) }; }
 
   connectedCallback() {
@@ -117,8 +119,12 @@ class NachkaufRadarCard extends HTMLElement {
     if (!info?.ingress_url) throw new Error("Add-on hat keine Ingress-Adresse");
     await this._session();
     this._mode = "full";
-    const v = this._config.view, src = info.ingress_url + (v === "app" ? "" : `?embed=${v}`);
-    this._shell(`<iframe class="nr-frame" title="Nachkauf-Radar" scrolling="${this._auto ? "no" : "auto"}" style="height:${this._height()}px" src="${src}"></iframe>`);
+    const v = this._config.view, q = new URLSearchParams();
+    if (v !== "app") q.set("embed", v);
+    if (this._config.isin) q.set("isin", String(this._config.isin));
+    const src = info.ingress_url + (q.toString() ? "?" + q : "");
+    const h = this._fill() ? "calc(100vh - var(--header-height, 56px) - 16px)" : this._height() + "px";
+    this._shell(`<iframe class="nr-frame" title="Nachkauf-Radar" scrolling="${this._auto ? "no" : "auto"}" style="height:${h}" src="${src}"></iframe>`);
     this.connectedCallback();
     if (!this._timer) this._timer = setInterval(() => this._keepAlive(), 60000);
   }
@@ -150,9 +156,48 @@ class NachkaufRadarCard extends HTMLElement {
   }
 }
 
+/* Einfacher Editor: Ansicht, ISIN, Höhe – ohne YAML */
+class NachkaufRadarCardEditor extends HTMLElement {
+  setConfig(config) { this._config = { ...(config || {}) }; this._render(); }
+  set hass(h) { this._hass = h; }
+  _emit() { this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: this._config }, bubbles: true, composed: true })); }
+  _render() {
+    const c = this._config || {};
+    this.innerHTML = `<div style="display:grid;gap:14px;padding:4px 0">
+      <label style="display:grid;gap:4px">Ansicht
+        <select id="v" style="padding:8px;border-radius:6px;font:inherit">
+          ${[["summary", "Übersicht: Kacheln und Tagesergebnisse"], ["watchlist", "Watchlist mit Kacheln"], ["charts", "Charts"], ["app", "Volle Ansicht wie in der Seitenleiste"]]
+            .map(([k, t]) => `<option value="${k}" ${(c.view || "app") === k ? "selected" : ""}>${t}</option>`).join("")}
+        </select></label>
+      <label style="display:grid;gap:4px">Nur bestimmte Werte (ISIN, mit Komma getrennt; leer = alle)
+        <input id="i" value="${String(c.isin || "").replace(/"/g, "&quot;")}" placeholder="z. B. IE00B4L5Y983" style="padding:8px;border-radius:6px;font:inherit"></label>
+      <label style="display:grid;gap:4px">Höhe in Pixeln (nur volle Ansicht; leer = automatisch)
+        <input id="h" value="${c.height ?? ""}" placeholder="760" style="padding:8px;border-radius:6px;font:inherit"></label>
+    </div>`;
+    this.querySelector("#v").onchange = e => { this._config = { ...this._config, view: e.target.value }; this._emit(); };
+    this.querySelector("#i").onchange = e => { const v = e.target.value.trim(); this._config = { ...this._config }; if (v) this._config.isin = v; else delete this._config.isin; this._emit(); };
+    this.querySelector("#h").onchange = e => { const v = e.target.value.trim(); this._config = { ...this._config }; if (v) this._config.height = v === "fill" ? v : Number(v); else delete this._config.height; this._emit(); };
+  }
+}
+
 if (!customElements.get("nachkauf-radar-card")) {
   customElements.define("nachkauf-radar-card", NachkaufRadarCard);
+  customElements.define("nachkauf-radar-card-editor", NachkaufRadarCardEditor);
   window.customCards = window.customCards || [];
-  window.customCards.push({ type: "nachkauf-radar-card", name: "Nachkauf-Radar", description: "Watchlist mit Nachkauf-Signalen und Verlauf, wie in der Seitenleiste.", preview: false });
+  // je Ansicht ein Eintrag in „Karte hinzufügen“, jeweils mit fertiger Konfiguration
+  const variants = [
+    ["summary", "Übersicht", "Kacheln: Nachkauf prüfen, Beobachten, Unauffällig, Tagesergebnis und Tagesergebnisse je Wert."],
+    ["watchlist", "Watchlist", "Kacheln und Watchlist mit Zeitraum-Umschalter und Mini-Charts."],
+    ["charts", "Charts", "Kursverlauf je Wert über 1 Monat bis 10 Jahre."],
+    ["app", "Volle Ansicht", "Komplette Oberfläche wie in der Seitenleiste."]
+  ];
+  for (const [view, title, desc] of variants) {
+    const tag = view === "app" ? "nachkauf-radar-card" : `nachkauf-radar-${view}-card`;
+    if (view !== "app") customElements.define(tag, class extends NachkaufRadarCard {
+      static getStubConfig() { return { view }; }
+      setConfig(c) { super.setConfig({ view, ...(c || {}) }); }
+    });
+    window.customCards.push({ type: tag, name: `Nachkauf-Radar: ${title}`, description: desc, preview: false });
+  }
   console.info(`%c NACHKAUF-RADAR-CARD %c ${NR_VERSION} `, "background:#2a46c4;color:#fff;border-radius:3px 0 0 3px", "background:#e3e8fb;color:#2a46c4;border-radius:0 3px 3px 0");
 }

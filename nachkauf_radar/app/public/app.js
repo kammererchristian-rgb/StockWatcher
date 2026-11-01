@@ -2,7 +2,8 @@ import { analyze, DEFAULTS, LEVEL_LABEL } from "./analysis.js";
 import { CATALOG, searchCatalog, isIsin, norm } from "./catalog.js";
 
 /* ---------------------------------------------------------------- Einbettung (Dashboard-Karte) */
-const EMBED = (() => { const v = new URLSearchParams(location.search).get("embed"); return ["watchlist", "summary"].includes(v) ? v : null; })();
+const EMBED = (() => { const v = new URLSearchParams(location.search).get("embed"); return ["watchlist", "summary", "charts"].includes(v) ? v : null; })();
+const EMBED_ISIN = (new URLSearchParams(location.search).get("isin") || "").toUpperCase().split(/[,; ]+/).filter(Boolean);
 if (EMBED) {
   document.body.classList.add("embed", "embed-" + EMBED);
   // Höhe an die Karte melden, damit sie ohne Scrollbalken passt
@@ -195,6 +196,59 @@ function spark(a) {
   return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true"><polyline points="${pts.map(p => p.map(n => n.toFixed(1)).join(",")).join(" ")}" fill="none" stroke="${col}" stroke-width="1.6" stroke-linejoin="round"/><circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="2.4" fill="${col}"/></svg>`;
 }
 
+/* Tagesergebnisse: Veränderung zum vorherigen Schlusskurs je Wert, gleich gewichtet gemittelt */
+function shortName(n) {
+  return String(n || "").replace(/\b(UCITS|ETF|Fund|Fonds|Acc|Dist|EUR|USD|\(Acc\)|\(Dist\)|\(DE\)|\(Acc|Dist\))\b/gi, "")
+    .replace(/\(\s*\)/g, "").replace(/\s{2,}/g, " ").replace(/[\s–-]+$/, "").trim() || n;
+}
+function dayStats(an) {
+  const v = an.filter(x => x.a.r1 != null && isFinite(x.a.r1));
+  const up = v.filter(x => x.a.r1 > 0).length, down = v.filter(x => x.a.r1 < 0).length;
+  const avg = v.length ? v.reduce((s, x) => s + x.a.r1, 0) / v.length : null;
+  return { v, up, down, flat: v.length - up - down, avg };
+}
+function dayTile(an, lastDate) {
+  const d = dayStats(an);
+  const cls = d.avg == null ? "" : d.avg < 0 ? "neg" : d.avg > 0 ? "pos" : "";
+  return `<div class="sum day"><b class="num ${cls}">${d.avg == null ? "–" : pct(d.avg, 2)}</b>
+    <span>Tagesergebnis Ø · ${fmtDate(lastDate).slice(0, 6)}</span>
+    <small class="ud"><span class="pos">▲ ${d.up}</span> <span class="neg">▼ ${d.down}</span>${d.flat ? ` <span>■ ${d.flat}</span>` : ""}</small></div>`;
+}
+function renderDayResults(an, lastDate) {
+  const d = dayStats(an), box = $("#dayres");
+  if (!d.v.length) { box.hidden = true; box.innerHTML = ""; return; }
+  box.hidden = false;
+  box.innerHTML = `<span class="dr-l">Tagesergebnisse</span>` + d.v.slice().sort((x, y) => x.a.r1 - y.a.r1).map(({ it, a }) => {
+    const old = a.lastDate && lastDate && a.lastDate < lastDate;
+    return `<button class="dr ${a.r1 < 0 ? "neg" : a.r1 > 0 ? "pos" : ""}" data-id="${esc(it.id)}" title="${esc(it.name)} – Schluss ${fmtDate(a.lastDate)}: ${pct(a.r1, 2)}">
+      <span class="dr-n">${esc(shortName(it.name))}</span><b class="num">${pct(a.r1, 2)}</b>${old ? `<small>${fmtDate(a.lastDate).slice(0, 6)}</small>` : ""}</button>`;
+  }).join("");
+}
+
+/* Chart-Ansicht für die Dashboard-Karte (view: charts) */
+function renderChartsGrid(an) {
+  const box = $("#chartsGrid"); if (EMBED !== "charts") return;
+  let list = an.filter(x => x.a.n >= 20);
+  if (EMBED_ISIN.length) list = list.filter(x => EMBED_ISIN.includes((x.it.isin || "").toUpperCase()) || EMBED_ISIN.includes((x.it.symbol || "").toUpperCase()));
+  const single = list.length === 1;
+  box.innerHTML = `<div class="listhead"><h2>${single ? esc(list[0].it.name) : "Charts"}</h2><div class="seg" id="rangeSeg2" role="group" aria-label="Zeitraum">${RANGES.map(r => `<button data-r="${r.k}" aria-pressed="${r.k === range}">${r.short}</button>`).join("")}</div></div>
+    ${list.length ? `<div class="cgrid ${single ? "single" : ""}">${list.map(({ it, a }, i) => {
+      const pf = perf(a, R().months);
+      return `<div class="ctile" data-id="${esc(it.id)}">
+        <div class="ct-h">${single ? "" : `<b class="ct-n">${esc(it.name)}</b>`}<span class="pill ${LV[a.level]}">${LEVEL_LABEL[a.level]}</span></div>
+        <div class="ct-k"><span class="num">${nf2.format(a.last)} <small>${esc(it.currency || "")}</small></span>
+          <span class="num ${pf?.chg < 0 ? "neg" : "pos"}">${R().short} ${pf ? pct(pf.chg) + (pf.partial ? "*" : "") : "–"}</span>
+          <span class="num ${a.r1 < 0 ? "neg" : "pos"}">1 T ${pct(a.r1, 2)}</span></div>
+        <div class="ct-c" data-i="${i}"></div></div>`;
+    }).join("")}</div>` : `<p class="note">Keine passenden Werte mit Kursen.${EMBED_ISIN.length ? " ISIN in der Kartenkonfiguration prüfen." : ""}</p>`}`;
+  box.querySelectorAll(".ct-c").forEach(el => {
+    const { a } = list[+el.dataset.i];
+    el.innerHTML = chartSvg(a, el.clientWidth || 320, "c" + el.dataset.i, single ? 0 : 170);
+  });
+  $("#rangeSeg2")?.addEventListener("click", e => { const b = e.target.closest("[data-r]"); if (b) setRange(b.dataset.r); });
+  box.querySelectorAll(".ctile").forEach(t => t.addEventListener("click", e => { if (!e.target.closest(".seg")) openPanel(); }));
+}
+
 function render() {
   const an = items.map(it => ({ it, a: A(it) }));
   const order = { buy: 0, watch: 1, calm: 2, none: 3 };
@@ -205,7 +259,8 @@ function render() {
     <div class="sum buy"><b class="num">${cnt("buy")}</b><span>Nachkauf prüfen</span></div>
     <div class="sum watch"><b class="num">${cnt("watch")}</b><span>Beobachten</span></div>
     <div class="sum calm"><b class="num">${cnt("calm")}</b><span>Unauffällig</span></div>
-    <div class="sum"><b class="num" style="font-size:20px;padding-top:6px">${fmtDate(lastDate)}</b><span>Letzter Schlusskurs</span></div>`;
+    ${dayTile(an, lastDate)}`;
+  renderDayResults(an, lastDate);
   $("#rows").innerHTML = !an.length
     ? `<tr><td colspan="8" class="empty">Noch nichts auf der Watchlist. Tippe oben einen ETF, eine Aktie oder einen Fonds ein und wähle einen Vorschlag.</td></tr>`
     : an.map(({ it, a }) => `<tr data-id="${esc(it.id)}" class="${it.id === selected ? "sel" : ""}" tabindex="0">
@@ -222,6 +277,7 @@ function render() {
   $("#rangeSeg").innerHTML = RANGES.map(r => `<button data-r="${r.k}" aria-pressed="${r.k === range}" title="${r.label}">${r.short}</button>`).join("");
   $("#partialNote").hidden = !an.some(({ a }) => perf(a, R().months)?.partial);
   renderDetail();
+  renderChartsGrid(an);
   for (const k of Object.keys(DEFAULTS)) { const el = $("#s_" + k); if (document.activeElement !== el) el.value = cfg[k]; }
 }
 $("#rows").addEventListener("click", e => {
@@ -231,6 +287,11 @@ $("#rows").addEventListener("click", e => {
 });
 $("#rows").addEventListener("keydown", e => { if (e.key !== "Enter") return; const tr = e.target.closest("tr[data-id]"); if (tr) { selected = tr.dataset.id; render(); scrollDetail(); } });
 $("#summary").addEventListener("click", () => { if (EMBED) openPanel(); });
+$("#dayres").addEventListener("click", e => {
+  const b = e.target.closest("[data-id]"); if (!b) return;
+  if (EMBED) return openPanel();
+  selected = b.dataset.id; render(); scrollDetail();
+});
 $("#rangeSeg").addEventListener("click", e => { const b = e.target.closest("[data-r]"); if (b) setRange(b.dataset.r); });
 function scrollDetail() { requestAnimationFrame(() => $("#detail").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" })); }
 
@@ -258,7 +319,7 @@ function sma200(c) {
   for (let i = 0; i < c.length; i++) { sum += c[i]; if (i >= 200) sum -= c[i - 200]; if (i >= 199) out[i] = sum / 200; }
   return out;
 }
-function chartSvg(a, width) {
+function chartSvg(a, width, uid = "", heightOverride = 0) {
   const rg = R(), pf = perf(a, rg.months); if (!pf) return "";
   const d = a.dates, c = a.closes, s0 = pf.start, n = c.length, N = n - s0;
   const short = rg.months <= 12;
@@ -266,7 +327,7 @@ function chartSvg(a, width) {
   // für lange Zeiträume ausdünnen (Form bleibt erhalten, SVG bleibt schlank)
   const k = Math.max(1, Math.ceil(N / 700));
   const idx = []; for (let i = s0; i < n; i += k) idx.push(i); if (idx.at(-1) !== n - 1) idx.push(n - 1);
-  const W = Math.max(300, width), H = Math.round(Math.min(300, Math.max(200, W * 0.38))), L = 8, Rr = 62, T = 14, B = 26;
+  const W = Math.max(240, width), H = heightOverride || Math.round(Math.min(300, Math.max(200, W * 0.38))), L = 8, Rr = 62, T = 14, B = 26;
   // Beim Monat skaliert nur der Kurs; die 200-Tage-Linie wird am Rand abgeschnitten, statt den Verlauf plattzudrücken
   const vals = idx.map(i => c[i]).concat(rg.k === "1m" ? [] : idx.map(i => smaAll[i]).filter(v => v != null));
   if (rg.k === "1y") vals.push(a.high);
@@ -293,14 +354,14 @@ function chartSvg(a, width) {
   const marks = short ? (a.marks || []).filter(i => i >= s0).map(i => `<circle cx="${x(i).toFixed(1)}" cy="${y(c[i]).toFixed(1)}" r="4" fill="var(--buy)" stroke="var(--surface)" stroke-width="1.5"><title>${fmtDate(d[i])}: ${pct(c[i] / c[i - 1] - 1, 2)}</title></circle>`).join("") : "";
   const col = pf.chg < 0 ? "var(--buy)" : "var(--chart-line)";
   return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Kursverlauf ${rg.label}: ${pct(pf.chg)}">
-    <defs><linearGradient id="ga" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--chart-line)" stop-opacity=".18"/><stop offset="1" stop-color="var(--chart-line)" stop-opacity="0"/></linearGradient>
-      <clipPath id="plot"><rect x="${L}" y="${T - 6}" width="${W - L - Rr + 6}" height="${H - B - T + 6}"/></clipPath></defs>
+    <defs><linearGradient id="ga${uid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--chart-line)" stop-opacity=".18"/><stop offset="1" stop-color="var(--chart-line)" stop-opacity="0"/></linearGradient>
+      <clipPath id="plot${uid}"><rect x="${L}" y="${T - 6}" width="${W - L - Rr + 6}" height="${H - B - T + 6}"/></clipPath></defs>
     ${g}
     ${showHigh && ddY > T && ddY < H - B ? `<rect x="${L}" y="${ddY.toFixed(1)}" width="${W - L - Rr}" height="${(H - B - ddY).toFixed(1)}" fill="var(--buy)" opacity=".06"/>` : ""}
     ${showHigh ? `<line x1="${L}" x2="${W - Rr}" y1="${highY.toFixed(1)}" y2="${highY.toFixed(1)}" stroke="var(--chart-high)" stroke-dasharray="4 4"/>` : ""}
     <line x1="${L}" x2="${W - Rr}" y1="${baseY.toFixed(1)}" y2="${baseY.toFixed(1)}" stroke="var(--muted)" stroke-dasharray="1 3" opacity=".8"/>
-    <path d="${area}" fill="url(#ga)"/>
-    ${smaPath ? `<path d="${smaPath}" fill="none" stroke="var(--chart-sma)" stroke-width="1.4" clip-path="url(#plot)"/>` : ""}
+    <path d="${area}" fill="url(#ga${uid})"/>
+    ${smaPath ? `<path d="${smaPath}" fill="none" stroke="var(--chart-sma)" stroke-width="1.4" clip-path="url(#plot${uid})"/>` : ""}
     <path d="${line}" fill="none" stroke="var(--chart-line)" stroke-width="${N > 400 ? 1.4 : 1.8}" stroke-linejoin="round"/>
     ${marks}
     <circle cx="${x(n - 1).toFixed(1)}" cy="${y(c[n - 1]).toFixed(1)}" r="4.5" fill="${col}" stroke="var(--surface)" stroke-width="2"/>
@@ -385,7 +446,7 @@ function renderDetail() {
     catch (e) { $("#delMsg").textContent = "Entfernen fehlgeschlagen: " + e.message; }
   };
 }
-let rT; window.addEventListener("resize", () => { clearTimeout(rT); rT = setTimeout(() => { const ch = $("#chart"), it = items.find(x => x.id === selected); if (ch && it) ch.innerHTML = chartSvg(A(it), ch.clientWidth); }, 150); });
+let rT; window.addEventListener("resize", () => { clearTimeout(rT); rT = setTimeout(() => { if (EMBED === "charts") return render(); const ch = $("#chart"), it = items.find(x => x.id === selected); if (ch && it) ch.innerHTML = chartSvg(A(it), ch.clientWidth); }, 150); });
 
 /* ---------------------------------------------------------------- Import */
 function parseNum(s) {
@@ -527,6 +588,9 @@ function dashYaml(kind) {
 view: watchlist`;
   if (kind === "summary") return `type: custom:nachkauf-radar-card
 view: summary`;
+  if (kind === "charts") return `type: custom:nachkauf-radar-card
+view: charts
+# isin: IE00B4L5Y983   # optional: nur bestimmte Werte, mit Komma getrennt`;
   if (kind === "full") return `type: custom:nachkauf-radar-card
 view: app
 height: 760`
@@ -576,6 +640,21 @@ ${rows}
 }
 function renderDash() { $("#dashYaml").textContent = dashYaml($("#dashWhich").value); }
 $("#dashWhich").onchange = renderDash;
+async function goTo(path) {
+  try { top.history.pushState(null, "", path); top.dispatchEvent(new CustomEvent("location-changed")); }
+  catch { try { top.location.href = path; } catch { window.open(path, "_top"); } }
+}
+$("#dashOpen").onclick = async () => {
+  try { const r = await api("api/dashboard", { method: "POST", body: {} }); msgTo("#dashMsg2", r.created ? "Dashboard angelegt." : "", true); goTo(r.url); }
+  catch (e) { msgTo("#dashMsg2", e.message, false); }
+};
+let resetArmed = false;
+$("#dashReset").onclick = async () => {
+  if (!resetArmed) { resetArmed = true; $("#dashReset").textContent = "Wirklich zurücksetzen?"; msgTo("#dashMsg2", "Eigene Änderungen am Dashboard gehen dabei verloren. Erneut tippen zum Bestätigen.", false); return; }
+  resetArmed = false; $("#dashReset").textContent = "Dashboard zurücksetzen";
+  try { await api("api/dashboard", { method: "POST", body: { reset: true } }); msgTo("#dashMsg2", "Dashboard auf den Ausgangszustand gesetzt.", true); }
+  catch (e) { msgTo("#dashMsg2", e.message, false); }
+};
 $("#dashBox").addEventListener("toggle", async () => {
   if (!$("#dashBox").open) return;
   try { info = await api("api/info"); } catch {}
