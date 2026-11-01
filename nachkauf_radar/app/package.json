@@ -1,0 +1,11 @@
+{
+  "name": "nachkauf-radar",
+  "version": "1.3.0",
+  "private": true,
+  "type": "module",
+  "description": "Watchlist mit Nachkauf-Signalen für Home Assistant",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "MOCK=1 DATA_DIR=./.data PORT=8099 node server.js"
+  }
+}

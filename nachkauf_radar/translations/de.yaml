@@ -1,0 +1,10 @@
+configuration:
+  eodhd_api_key:
+    name: EODHD-API-Schlüssel
+    description: Schlüssel von eodhd.com. Leer lassen, um nur Yahoo Finance zu nutzen.
+  eodhd_daily_limit:
+    name: EODHD-Abrufe pro Tag
+    description: "Obergrenze für Abrufe pro Tag. Gratis-Tarif: 20. Danach springt Yahoo ein."
+  max_abweichung_prozent:
+    name: Erlaubte Abweichung zwischen den Quellen (%)
+    description: Weichen die Schlusskurse beider Quellen stärker ab, zeigt die App eine Warnung und die Push-Nachricht einen Hinweis.

@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Nachkauf-Radar</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<style>
+/* Layout: Kopf mit Suche → Signal-Zusammenfassung → Watchlist → Detail (Chart, Begründung, Import) → Einstellungen */
+:root{
+  --bg:#eef1f6; --surface:#ffffff; --ink:#141b2d; --muted:#5b6478; --line:#d6dbe6;
+  --accent:#2a46c4; --accent-ink:#ffffff; --accent-soft:#e3e8fb;
+  --buy:#c2341f; --buy-soft:#fbe6e2; --watch:#a86a00; --watch-soft:#fbefd6; --calm:#3f7a5a; --calm-soft:#e1f0e7;
+  --chart-line:#2a46c4; --chart-sma:#a86a00; --chart-high:#8a93a8;
+  --f-display:"Bahnschrift","DIN Alternate","Roboto Condensed","Segoe UI",system-ui,sans-serif;
+  --f-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --f-mono:ui-monospace,"SFMono-Regular","Roboto Mono",Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root{
+  --bg:#0f1420; --surface:#171e2e; --ink:#e7ebf4; --muted:#97a0b5; --line:#2a3347;
+  --accent:#8fa4ff; --accent-ink:#0f1420; --accent-soft:#1f2a4d;
+  --buy:#ff7a63; --buy-soft:#3b1c18; --watch:#f0b44a; --watch-soft:#352a14; --calm:#7cc89c; --calm-soft:#16301f;
+  --chart-line:#8fa4ff; --chart-sma:#f0b44a; --chart-high:#6b7489; color-scheme:dark;}}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5}
+.wrap{max-width:1080px;margin:0 auto;padding-block:22px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:20px}
+h1{font-family:var(--f-display);font-weight:700;font-size:clamp(26px,5vw,36px);letter-spacing:-.01em;margin:0;line-height:1.05}
+h2{font-family:var(--f-display);font-weight:600;font-size:19px;margin:0;text-wrap:balance}
+h3{font-size:16px;margin:0}
+.sub{color:var(--muted);margin:6px 0 0;max-width:62ch}
+.num,.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+button,select,input,textarea{font:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.top{display:flex;justify-content:space-between;align-items:end;gap:16px;flex-wrap:wrap}
+
+.search{position:relative;display:grid;gap:10px}
+.searchbox{display:flex;align-items:center;gap:10px;background:var(--surface);border:1.5px solid var(--line);border-radius:12px;padding:4px 6px 4px 14px}
+.searchbox:focus-within{border-color:var(--accent)}
+.searchbox input{flex:1;min-width:0;border:0;background:transparent;color:var(--ink);font-size:16px;padding:10px 0;outline:none}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:999px;padding:4px 12px;font-size:13px}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.suggest{position:absolute;left:0;right:0;top:56px;z-index:20;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 14px 40px rgba(10,20,50,.2);max-height:440px;overflow:auto;padding:6px}
+.suggest .head{padding:8px 10px 4px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;font-weight:600;display:flex;justify-content:space-between;gap:8px}
+.opt{display:grid;grid-template-columns:54px minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px 10px;border-radius:8px;cursor:pointer}
+.opt[aria-selected="true"],.opt:hover{background:var(--accent-soft)}
+.opt .nm{font-weight:500;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.opt .meta{font-size:12px;color:var(--muted)}
+.opt .add{font-size:12px;color:var(--accent);font-weight:600;white-space:nowrap}
+.opt .add.on{color:var(--muted);font-weight:400}
+.tag{display:inline-block;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;padding:2px 7px;border-radius:5px;background:var(--accent-soft);color:var(--accent);text-align:center}
+.tag.Aktie{background:var(--calm-soft);color:var(--calm)}
+.tag.Fonds{background:var(--watch-soft);color:var(--watch)}
+.tag.ETC,.tag.Index,.tag.Krypto{background:var(--line);color:var(--ink)}
+
+.summary{display:flex;flex-wrap:wrap;gap:10px}
+.sum{flex:1 1 160px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 16px;display:grid;gap:2px}
+.sum b{font-family:var(--f-display);font-size:28px;font-weight:700;line-height:1.1}
+.sum.buy b{color:var(--buy)} .sum.watch b{color:var(--watch)} .sum.calm b{color:var(--calm)}
+.sum span{font-size:13px;color:var(--muted)}
+
+.listhead{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.tablewrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:12px}
+table{border-collapse:collapse;width:100%;min-width:760px}
+th{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);text-align:right;font-weight:600;padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+td{padding:11px 12px;border-bottom:1px solid var(--line);text-align:right;vertical-align:middle}
+tr:last-child td{border-bottom:0}
+td.num{white-space:nowrap}
+tbody tr[data-id]{cursor:pointer}
+tbody tr[data-id]:hover{background:var(--accent-soft)}
+tbody tr.sel{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent)}
+.iname{font-weight:600;display:block;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.isub{font-size:12px;color:var(--muted);display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:2px}
+.neg{color:var(--buy)} .pos{color:var(--calm)}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;padding:4px 10px;border-radius:999px;white-space:nowrap}
+.pill::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.pill.buy{background:var(--buy-soft);color:var(--buy)}
+.pill.watch{background:var(--watch-soft);color:var(--watch)}
+.pill.calm{background:var(--calm-soft);color:var(--calm)}
+.pill.none{background:var(--bg);color:var(--muted)}
+.warn{font-size:11px;font-weight:600;color:var(--buy)}
+.empty{padding:28px 20px;text-align:center;color:var(--muted)}
+
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px;display:grid;gap:18px}
+.dtop{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;align-items:start}
+.dtop>div{min-width:0}
+.px{font-family:var(--f-mono);font-size:26px;font-weight:500}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.kpi{background:var(--surface);padding:10px 14px;display:grid;gap:2px}
+.kpi span{font-size:12px;color:var(--muted)}
+.kpi b{font-family:var(--f-mono);font-weight:500;font-size:17px}
+.chart{width:100%;min-width:0}
+.chart svg{display:block;width:100%;height:auto}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12.5px;color:var(--muted)}
+.legend i{display:inline-block;width:16px;height:3px;border-radius:2px;vertical-align:middle;margin-right:6px}
+.cols{display:grid;grid-template-columns:1.1fr 1fr;gap:22px}
+.cols>*{min-width:0}
+@media (max-width:760px){.cols{grid-template-columns:1fr}}
+.stack{display:grid;gap:10px;align-content:start}
+.sig{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.sig li{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:8px;align-items:start;padding:9px 12px;border-radius:9px;background:var(--bg)}
+.sig li.hit{background:var(--buy-soft)}
+.sig .ic{font-family:var(--f-mono);font-weight:600;color:var(--muted)}
+.sig li.hit .ic{color:var(--buy)}
+.sig small{display:block;color:var(--muted);font-size:12.5px}
+.sig .pts{font-family:var(--f-mono);font-size:12px;color:var(--muted)}
+textarea,.field input,.field select{width:100%;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:9px 10px}
+textarea{font-family:var(--f-mono);font-size:13px;min-height:110px;resize:vertical}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.btn{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:9px;padding:8px 14px;font-weight:500}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.danger{color:var(--buy)}
+.btn:disabled{opacity:.55;cursor:default}
+.note{font-size:13px;color:var(--muted)}
+.msg{font-size:13px;font-weight:500}
+.msg.ok{color:var(--calm)} .msg.err{color:var(--buy)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:var(--surface)}
+.seg button{border:0;background:transparent;color:var(--muted);padding:5px 11px;font-size:13px;font-weight:600;font-variant-numeric:tabular-nums}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+.perf{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+@media (max-width:560px){.perf{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.perf button{display:grid;gap:2px;text-align:left;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:10px;padding:9px 12px;min-width:0}
+.perf button span{font-size:12px;color:var(--muted)}
+.perf button b{font-family:var(--f-mono);font-weight:500;font-size:17px;font-variant-numeric:tabular-nums}
+.perf button small{font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.perf button[aria-selected="true"]{border-color:var(--accent);background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent)}
+.since{display:block;font-size:11px;color:var(--muted);font-family:var(--f-body)}
+.diag{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:10px;font-size:12px;overflow-x:auto;white-space:pre-wrap;word-break:break-word;margin:10px 0 0}
+details.box{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 16px}
+details.box summary{cursor:pointer;font-weight:600}
+.sgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:12px}
+.field{display:grid;gap:4px;font-size:13px;color:var(--muted)}
+.check{display:flex;gap:8px;align-items:center;font-size:14px;color:var(--ink)}
+footer{font-size:12.5px;color:var(--muted);max-width:80ch}
+@media (prefers-reduced-motion:no-preference){tbody tr,.opt{transition:background .12s}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="eyebrow">ETFs · Aktien · Fonds</div>
+      <h1>Nachkauf-Radar</h1>
+      <p class="sub">Beobachtet deine Watchlist und meldet außergewöhnliche Kursverluste: starke Tagesverluste gemessen an der üblichen Schwankung, Rücksetzer vom 52-Wochen-Hoch und überverkaufte Phasen.</p>
+    </div>
+    <div class="row"><button class="btn" id="refreshBtn">Kurse aktualisieren</button></div>
+  </header>
+
+  <section class="search" aria-label="Wertpapier suchen">
+    <div class="searchbox">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" style="color:var(--muted)"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="q" type="text" autocomplete="off" placeholder="Name, ISIN oder Kürzel, z. B. MSCI World, SAP, IE00B4L5Y983" role="combobox" aria-expanded="false" aria-controls="sugg" aria-autocomplete="list">
+    </div>
+    <div class="chips" id="typeChips" role="group" aria-label="Art filtern"></div>
+    <div class="suggest" id="sugg" role="listbox" hidden></div>
+  </section>
+
+  <section class="summary" id="summary" aria-label="Signalübersicht"></section>
+
+  <section class="stack">
+    <div class="listhead"><h2>Watchlist</h2><div class="row"><span class="note">Entwicklung</span><div class="seg" id="rangeSeg" role="group" aria-label="Zeitraum"></div></div></div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Wertpapier</th><th>Kurs</th><th>1 Tag</th><th id="thPerf">1 J</th><th>vom Hoch</th><th>RSI 14</th><th id="thSpark">Verlauf 1 J</th><th>Signal</th></tr></thead>
+        <tbody id="rows"><tr><td colspan="8" class="empty">Lade Watchlist …</td></tr></tbody>
+      </table>
+    </div>
+    <div class="listhead"><span class="note" id="partialNote" hidden>* Kurshistorie kürzer als der Zeitraum; Wert seit Beginn der Historie.</span><span class="note" id="status"></span></div>
+  </section>
+
+  <section class="panel" id="detail" hidden></section>
+
+  <details class="box" id="notifyBox">
+    <summary>Benachrichtigung aufs Handy</summary>
+    <div class="sgrid">
+      <label class="field">Gerät bzw. Dienst<select id="n_service"><option value="">Keine Benachrichtigung</option></select></label>
+      <label class="field">Täglich prüfen um<input id="n_time" type="time"></label>
+      <label class="field">Melden bei<select id="n_level"><option value="buy">„Nachkauf prüfen“</option><option value="watch">„Beobachten“ und „Nachkauf prüfen“</option></select></label>
+      <label class="check" style="align-self:end"><input id="n_wd" type="checkbox"> nur Montag bis Freitag</label>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn primary" id="n_save">Speichern</button>
+      <button class="btn" id="n_test">Testnachricht senden</button>
+      <button class="btn" id="n_run">Jetzt prüfen</button>
+      <span class="msg" id="n_msg"></span>
+    </div>
+    <p class="note" id="n_last" style="margin:10px 0 0"></p>
+  </details>
+
+  <details class="box" id="dataBox">
+    <summary>Sichern und übernehmen</summary>
+    <div class="stack" style="margin-top:10px">
+      <p class="note" style="margin:0">Umzug vom bisherigen, lokal installierten Nachkauf-Radar: Das alte Add-on muss dafür noch laufen. Übernommen werden Watchlist, Schwellen und Benachrichtigung; die Kurse lädt das Add-on neu.</p>
+      <div class="row"><button class="btn primary" id="migBtn">Vom lokalen Add-on übernehmen</button><span class="msg" id="migMsg"></span></div>
+      <label class="field" for="bak">Sicherung als Text (zum Aufheben kopieren, oder hier einfügen und wiederherstellen)</label>
+      <textarea id="bak" spellcheck="false" placeholder='{"format":"nachkauf-radar", …}'></textarea>
+      <div class="row"><button class="btn" id="bakExport">Sicherung erzeugen</button><button class="btn" id="bakCopy">Kopieren</button><button class="btn" id="bakRestore">Wiederherstellen</button><span class="msg" id="bakMsg"></span></div>
+    </div>
+  </details>
+
+  <details class="box">
+    <summary>Datenquellen testen</summary>
+    <p class="note">Ruft testweise 10 Jahre MSCI World bei Yahoo und EODHD ab und zeigt das genaue Ergebnis. Bei Problemen diesen Text kopieren und weitergeben.</p>
+    <div class="row"><button class="btn primary" id="diagBtn">Test starten</button><button class="btn" id="diagCopy">Ergebnis kopieren</button></div>
+    <pre id="diagOut" class="diag" hidden></pre>
+  </details>
+
+  <details class="box">
+    <summary>Schwellen für Signale</summary>
+    <div class="sgrid">
+      <label class="field">Tagesverlust ab (× übliche Schwankung)<input id="s_sigma" type="number" step="0.1" min="1" max="5"></label>
+      <label class="field">Rücksetzer vom Hoch, Stufe 1 (%)<input id="s_dd1" type="number" step="1" min="3" max="50"></label>
+      <label class="field">Rücksetzer vom Hoch, Stufe 2 (%)<input id="s_dd2" type="number" step="1" min="5" max="80"></label>
+      <label class="field">RSI überverkauft unter<input id="s_rsi" type="number" step="1" min="10" max="45"></label>
+      <label class="field">Abstand unter 200-Tage-Linie ab (%)<input id="s_sma" type="number" step="1" min="1" max="30"></label>
+      <label class="field">„Nachkauf prüfen“ ab Punkten<input id="s_strong" type="number" step="1" min="2" max="8"></label>
+    </div>
+    <div class="row" style="margin-top:12px"><button class="btn primary" id="s_save">Schwellen speichern</button><span class="msg" id="s_msg"></span></div>
+  </details>
+
+  <footer>Die Signale sind eine rechnerische Auswertung von Schlusskursen und keine Anlageberatung. Ein starker Rückgang kann sich fortsetzen. Kursquellen: EODHD (mit API-Schlüssel) und Yahoo Finance, gegenseitig geprüft; Tagesschlusskurse, dividendenbereinigt. <span id="ver"></span></footer>
+</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
