@@ -67,6 +67,11 @@ mode: compact
 range: veraenderung_1_jahr   # oder veraenderung_1_monat, veraenderung_5_jahre, veraenderung_10_jahre
 ```
 
+Zeigt die Karte „Konfigurationsfehler“: Home Assistant einmal neu starten (Einstellungen → System → Neu starten)
+und die Seite bzw. App neu laden. Home Assistant liefert Dateien aus dem Ordner `www` erst aus, wenn der Ordner beim
+Start schon existierte; das Add-on legt ihn beim ersten Mal an. Die Karte gehört in **Karte hinzufügen**, nicht in
+**Badge hinzufügen**.
+
 Klappt die automatische Anmeldung nicht (z. B. bei Dashboards im YAML-Modus), unter **Einstellungen → Dashboards
 → ⋮ → Ressourcen** `/local/nachkauf-radar/nachkauf-radar-card.js` als JavaScript-Modul eintragen.
 

@@ -599,12 +599,25 @@ async function installCard() {
     if (!mine) { await haWs([{ type: "lovelace/resources/create", res_type: "module", url: want }]); log("Dashboard-Ressource angemeldet:", want); }
     else if (mine.url !== want) { await haWs([{ type: "lovelace/resources/update", resource_id: mine.id, res_type: "module", url: want }]); log("Dashboard-Ressource aktualisiert:", want); }
     cardStatus.resource = want; cardStatus.error = null;
+    await checkCardServed();
   } catch (e) {
     cardStatus.error = e.message;
     log(`Dashboard-Karte: automatische Anmeldung nicht möglich (${e.message}). Von Hand: Einstellungen → Dashboards → ⋮ → Ressourcen → ${CARD_URL} als JavaScript-Modul hinzufügen.`);
   }
 }
+// Liefert Home Assistant die Datei unter /local aus? Den Ordner www bindet Home Assistant nur beim Start ein:
+// Wurde er gerade erst angelegt, ist ein Neustart von Home Assistant nötig.
+async function checkCardServed() {
+  const base = process.env.HA_HTTP_URL || "http://homeassistant:8123";
+  try {
+    const r = await fetch(base + CARD_URL, { signal: AbortSignal.timeout(8000) });
+    cardStatus.served = r.ok;
+    cardStatus.hint = r.ok ? null : `Home Assistant liefert ${CARD_URL} noch nicht aus (HTTP ${r.status}). Bitte Home Assistant einmal neu starten (Einstellungen → System → Neu starten), danach die Seite neu laden.`;
+  } catch (e) { cardStatus.served = null; cardStatus.hint = null; }
+  if (cardStatus.hint) log("Dashboard-Karte:", cardStatus.hint);
+}
 setTimeout(() => installCard(), 5e3);
+setInterval(() => { if (cardStatus.served === false) checkCardServed(); }, 5 * 60e3);
 setTimeout(() => publishSensors("Start"), 15e3);
 
 /* ------------------------------------------------------- Tägliche Prüfung */

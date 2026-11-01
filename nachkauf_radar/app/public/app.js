@@ -503,7 +503,8 @@ function dashYaml(kind) {
   const per = items.map(it => ({ it, e: "sensor.nachkauf_radar_" + String(it.isin || it.id).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") }));
   if (kind === "full") return `type: custom:nachkauf-radar-card
 height: 760`
-    + (info.card?.error ? `\n# Hinweis: Die Karte wurde nicht automatisch angemeldet (${info.card.error}).\n# Einstellungen → Dashboards → ⋮ → Ressourcen → /local/nachkauf-radar/nachkauf-radar-card.js (JavaScript-Modul)` : "");
+    + (info.card?.error ? `\n# Hinweis: Die Karte wurde nicht automatisch angemeldet (${info.card.error}).\n# Einstellungen → Dashboards → ⋮ → Ressourcen → /local/nachkauf-radar/nachkauf-radar-card.js (JavaScript-Modul)` : "")
+    + (info.card?.hint ? `\n# Achtung: ${info.card.hint}` : "");
   if (kind === "compact") return `type: custom:nachkauf-radar-card
 mode: compact
 range: veraenderung_1_jahr   # oder veraenderung_1_monat, veraenderung_5_jahre, veraenderung_10_jahre`;
@@ -548,7 +549,13 @@ ${rows}
 }
 function renderDash() { $("#dashYaml").textContent = dashYaml($("#dashWhich").value); }
 $("#dashWhich").onchange = renderDash;
-$("#dashBox").addEventListener("toggle", async () => { if (!$("#dashBox").open) return; try { info = await api("api/info"); } catch {} renderDash(); });
+$("#dashBox").addEventListener("toggle", async () => {
+  if (!$("#dashBox").open) return;
+  try { info = await api("api/info"); } catch {}
+  renderDash();
+  if (info.card?.hint) msgTo("#dashMsg", info.card.hint, false);
+  else if (info.card?.error) msgTo("#dashMsg", "Karte nicht automatisch angemeldet: " + info.card.error, false);
+});
 $("#dashCopy").onclick = async () => {
   const t = $("#dashYaml").textContent;
   try { await navigator.clipboard.writeText(t); msgTo("#dashMsg", "Kopiert.", true); }

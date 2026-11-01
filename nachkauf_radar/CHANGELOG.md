@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.1
+- Prüft, ob Home Assistant die Dashboard-Karte unter /local ausliefert. Wurde der Ordner www gerade erst angelegt,
+  zeigen App und Protokoll den Hinweis, Home Assistant einmal neu zu starten (sonst „Konfigurationsfehler“ in der Karte).
+
 ## 1.4.0
 - Dashboard-Karte `custom:nachkauf-radar-card`: zeigt die komplette Ansicht wie in der Seitenleiste
   (für Admin-Konten) oder eine kompakte Watchlist (`mode: compact`, automatisch für Konten ohne Admin-Rechte).

@@ -1,5 +1,5 @@
 name: Nachkauf-Radar
-version: "1.4.0"
+version: "1.4.1"
 slug: nachkauf_radar
 description: Watchlist für ETFs, Aktien und Fonds mit Hinweisen bei außergewöhnlichen Kursverlusten
 url: https://github.com/kammererchristian-rgb/StockWatcher
