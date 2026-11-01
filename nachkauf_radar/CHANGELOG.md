@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.2
+- Dashboard-Karte wird als reines ASCII ausgeliefert (Umlaute als \uXXXX), damit Umlaute unabhängig von der
+  Kodierung beim Ausliefern richtig erscheinen.
+
 ## 1.4.1
 - Prüft, ob Home Assistant die Dashboard-Karte unter /local ausliefert. Wurde der Ordner www gerade erst angelegt,
   zeigen App und Protokoll den Hinweis, Home Assistant einmal neu zu starten (sonst „Konfigurationsfehler“ in der Karte).

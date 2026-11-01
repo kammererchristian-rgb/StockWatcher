@@ -588,7 +588,9 @@ function haWs(commands) {
 async function installCard() {
   if (!OPTIONS.card || (!SUP_TOKEN && !process.env.HA_WS_URL)) return;
   try {
-    const src = (await fs.readFile(path.join(__dirname, "card", "nachkauf-radar-card.js"), "utf8")).replace("__VERSION__", VERSION);
+    // nur ASCII ausliefern: Umlaute als \uXXXX, damit die Kodierung beim Ausliefern keine Rolle spielt
+    const src = (await fs.readFile(path.join(__dirname, "card", "nachkauf-radar-card.js"), "utf8")).replace("__VERSION__", VERSION)
+      .replace(/[^\x00-\x7f]/g, c => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"));
     const dir = path.join(HA_CONFIG, "www", "nachkauf-radar"), file = path.join(dir, "nachkauf-radar-card.js");
     let old = ""; try { old = await fs.readFile(file, "utf8"); } catch {}
     if (old !== src) { await fs.mkdir(dir, { recursive: true }); await fs.writeFile(file, src); log("Dashboard-Karte abgelegt:", file); }
