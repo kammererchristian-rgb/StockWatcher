@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.0
+- Dashboard-Karte mit `view`: `watchlist` (Kacheln + Watchlist) und `summary` (nur Kacheln) im gleichen Aussehen wie
+  die App, ohne Suche und Einstellungen; Höhe passt sich automatisch an. `app` zeigt weiter die komplette Oberfläche.
+- Watchlist in der Karte passt sich der Kartenbreite an und blendet weniger wichtige Spalten aus.
+- Tipp auf Zeile oder Kachel öffnet das volle Radar.
+
 ## 1.4.2
 - Dashboard-Karte wird als reines ASCII ausgeliefert (Umlaute als \uXXXX), damit Umlaute unabhängig von der
   Kodierung beim Ausliefern richtig erscheinen.

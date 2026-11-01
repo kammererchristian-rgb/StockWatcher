@@ -49,15 +49,24 @@ Tagesverlust hat. Ein Tipp auf die Nachricht öffnet das Radar.
 
 ## Dashboard
 
-**Volle Ansicht als Karte:** Das Add-on bringt die Karte `custom:nachkauf-radar-card` mit und meldet sie beim Start als
+**Karte:** Das Add-on bringt die Karte `custom:nachkauf-radar-card` mit und meldet sie beim Start als
 Dashboard-Ressource an. Im Dashboard **Bearbeiten → Karte hinzufügen → Manuell**:
 
 ```yaml
 type: custom:nachkauf-radar-card
-height: 760
+view: watchlist     # Kacheln + Watchlist mit Zeitraum-Umschalter und Mini-Charts
 ```
 
-Die Karte zeigt die gleiche Oberfläche wie die Seitenleiste. Dafür braucht das angemeldete Konto Admin-Rechte
+| `view` | Inhalt | Höhe |
+|---|---|---|
+| `watchlist` | Kacheln (Nachkauf prüfen, Beobachten, Unauffällig, letzter Schlusskurs) und Watchlist | passt sich an |
+| `summary` | nur die vier Kacheln | passt sich an |
+| `app` | komplette Oberfläche wie in der Seitenleiste | `height:` (Standard 760) |
+
+Bei schmalen Karten blendet die Watchlist der Reihe nach RSI, „vom Hoch“, „1 Tag“, den Mini-Chart und zuletzt den
+Kurs aus; Signal und Entwicklung bleiben immer sichtbar. Ein Tipp auf eine Zeile oder Kachel öffnet das volle Radar.
+
+Die Karte zeigt die gleiche Darstellung wie die Seitenleiste. Dafür braucht das angemeldete Konto Admin-Rechte
 (wie für die Seitenleiste auch). Für andere Konten, etwa ein Wandtablet, zeigt sie automatisch eine kompakte
 Watchlist aus den Sensoren. Die kompakte Ansicht lässt sich auch fest wählen:
 

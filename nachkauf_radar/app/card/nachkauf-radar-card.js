@@ -2,7 +2,10 @@
  *
  *   type: custom:nachkauf-radar-card
  *   height: 760          # Höhe in Pixeln (Standard 760)
- *   mode: full           # full = komplette Ansicht wie in der Seitenleiste, compact = nur Watchlist aus den Sensoren
+ *   mode: full           # full = Add-on-Oberfläche einbetten, compact = schlichte Liste aus den Sensoren
+ *   view: app            # app = komplette Ansicht wie in der Seitenleiste
+ *                        # watchlist = Kacheln + Watchlist (ohne Suche/Einstellungen), Höhe passt sich an
+ *                        # summary = nur die vier Kacheln, Höhe passt sich an
  *
  * Die volle Ansicht bettet die Add-on-Oberfläche über Ingress ein, genau wie die Seitenleiste.
  * Dafür braucht das angemeldete Konto Admin-Rechte; sonst zeigt die Karte automatisch die kompakte Watchlist.
@@ -12,11 +15,13 @@ const SUMMARY = "sensor.nachkauf_radar_signale";
 const PREFIX = "sensor.nachkauf_radar_";
 
 class NachkaufRadarCard extends HTMLElement {
-  static getStubConfig() { return { height: 760, mode: "full" }; }
+  static getStubConfig() { return { view: "watchlist" }; }
   static getConfigElement() { return undefined; }
 
   setConfig(config) {
-    this._config = { height: 760, mode: "full", ...(config || {}) };
+    this._config = { mode: "full", view: "app", ...(config || {}) };
+    if (!["app", "watchlist", "summary"].includes(this._config.view)) throw new Error("view muss app, watchlist oder summary sein");
+    this._auto = this._config.view !== "app" && !this._config.height;
     this._mode = null;
     if (this._hass) this._start();
   }
@@ -28,11 +33,27 @@ class NachkaufRadarCard extends HTMLElement {
     else if (this._mode === "compact") this._renderCompact();
   }
 
-  getCardSize() { return this._mode === "compact" ? 4 : Math.ceil((this._config?.height || 760) / 50); }
-  getGridOptions() { return { columns: 12, min_columns: 6, rows: this._mode === "compact" ? "auto" : Math.ceil((this._config?.height || 760) / 56) }; }
+  _height() { return this._frameH || Number(this._config?.height) || { app: 760, watchlist: 460, summary: 110 }[this._config?.view] || 760; }
+  getCardSize() { return this._mode === "compact" ? 4 : Math.ceil(this._height() / 50); }
+  getGridOptions() { return { columns: 12, min_columns: 6, rows: this._mode === "compact" || this._auto ? "auto" : Math.ceil(this._height() / 56) }; }
 
-  connectedCallback() { if (this._mode === "full" && !this._timer) this._timer = setInterval(() => this._keepAlive(), 60000); }
-  disconnectedCallback() { clearInterval(this._timer); this._timer = null; }
+  connectedCallback() {
+    if (this._mode === "full" && !this._timer) this._timer = setInterval(() => this._keepAlive(), 60000);
+    if (!this._onMsg) {
+      // eingebettete Ansicht meldet ihre Höhe
+      this._onMsg = ev => {
+        const f = this.querySelector("iframe");
+        if (!f || ev.source !== f.contentWindow || ev.data?.type !== "nachkauf-radar-height" || !this._auto) return;
+        const h = Math.max(60, Math.min(4000, Number(ev.data.h) || 0));
+        if (Math.abs(h - (this._frameH || 0)) > 2) { this._frameH = h; f.style.height = h + "px"; }
+      };
+      window.addEventListener("message", this._onMsg);
+    }
+  }
+  disconnectedCallback() {
+    clearInterval(this._timer); this._timer = null;
+    if (this._onMsg) { window.removeEventListener("message", this._onMsg); this._onMsg = null; }
+  }
 
   _shell(inner) {
     this.innerHTML = `
@@ -96,7 +117,9 @@ class NachkaufRadarCard extends HTMLElement {
     if (!info?.ingress_url) throw new Error("Add-on hat keine Ingress-Adresse");
     await this._session();
     this._mode = "full";
-    this._shell(`<iframe class="nr-frame" title="Nachkauf-Radar" style="height:${Number(this._config.height) || 760}px" src="${info.ingress_url}"></iframe>`);
+    const v = this._config.view, src = info.ingress_url + (v === "app" ? "" : `?embed=${v}`);
+    this._shell(`<iframe class="nr-frame" title="Nachkauf-Radar" scrolling="${this._auto ? "no" : "auto"}" style="height:${this._height()}px" src="${src}"></iframe>`);
+    this.connectedCallback();
     if (!this._timer) this._timer = setInterval(() => this._keepAlive(), 60000);
   }
 

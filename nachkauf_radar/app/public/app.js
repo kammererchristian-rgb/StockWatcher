@@ -1,6 +1,23 @@
 import { analyze, DEFAULTS, LEVEL_LABEL } from "./analysis.js";
 import { CATALOG, searchCatalog, isIsin, norm } from "./catalog.js";
 
+/* ---------------------------------------------------------------- Einbettung (Dashboard-Karte) */
+const EMBED = (() => { const v = new URLSearchParams(location.search).get("embed"); return ["watchlist", "summary"].includes(v) ? v : null; })();
+if (EMBED) {
+  document.body.classList.add("embed", "embed-" + EMBED);
+  // Höhe an die Karte melden, damit sie ohne Scrollbalken passt
+  // Inhaltshöhe messen (nicht scrollHeight: das ist nie kleiner als die aktuelle Rahmenhöhe)
+  const report = () => { try { const w = document.querySelector(".wrap"); parent.postMessage({ type: "nachkauf-radar-height", h: Math.ceil(w.getBoundingClientRect().bottom + scrollY) }, "*"); } catch {} };
+  new ResizeObserver(report).observe(document.body); addEventListener("load", report);
+}
+// Volles Radar in Home Assistant öffnen (gleiche Herkunft: Navigation der Home-Assistant-Oberfläche)
+async function openPanel() {
+  let panel = "/local_nachkauf_radar";
+  try { panel = (await api("api/info")).panel || panel; } catch {}
+  try { top.history.pushState(null, "", panel); top.dispatchEvent(new CustomEvent("location-changed")); }
+  catch { try { top.location.href = panel; } catch { window.open(panel, "_top"); } }
+}
+
 /* ---------------------------------------------------------------- Helfer */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -207,8 +224,13 @@ function render() {
   renderDetail();
   for (const k of Object.keys(DEFAULTS)) { const el = $("#s_" + k); if (document.activeElement !== el) el.value = cfg[k]; }
 }
-$("#rows").addEventListener("click", e => { const tr = e.target.closest("tr[data-id]"); if (!tr) return; selected = selected === tr.dataset.id ? null : tr.dataset.id; render(); if (selected) scrollDetail(); });
+$("#rows").addEventListener("click", e => {
+  const tr = e.target.closest("tr[data-id]"); if (!tr) return;
+  if (EMBED) return openPanel();
+  selected = selected === tr.dataset.id ? null : tr.dataset.id; render(); if (selected) scrollDetail();
+});
 $("#rows").addEventListener("keydown", e => { if (e.key !== "Enter") return; const tr = e.target.closest("tr[data-id]"); if (tr) { selected = tr.dataset.id; render(); scrollDetail(); } });
+$("#summary").addEventListener("click", () => { if (EMBED) openPanel(); });
 $("#rangeSeg").addEventListener("click", e => { const b = e.target.closest("[data-r]"); if (b) setRange(b.dataset.r); });
 function scrollDetail() { requestAnimationFrame(() => $("#detail").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" })); }
 
@@ -501,7 +523,12 @@ let info = {};
 function dashYaml(kind) {
   const panel = info.panel || "/local_nachkauf_radar";
   const per = items.map(it => ({ it, e: "sensor.nachkauf_radar_" + String(it.isin || it.id).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") }));
+  if (kind === "watchlist") return `type: custom:nachkauf-radar-card
+view: watchlist`;
+  if (kind === "summary") return `type: custom:nachkauf-radar-card
+view: summary`;
   if (kind === "full") return `type: custom:nachkauf-radar-card
+view: app
 height: 760`
     + (info.card?.error ? `\n# Hinweis: Die Karte wurde nicht automatisch angemeldet (${info.card.error}).\n# Einstellungen → Dashboards → ⋮ → Ressourcen → /local/nachkauf-radar/nachkauf-radar-card.js (JavaScript-Modul)` : "")
     + (info.card?.hint ? `\n# Achtung: ${info.card.hint}` : "");
